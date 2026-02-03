@@ -1,0 +1,10 @@
+[submodule "extern/commonlibsse-ng"]
+	path = extern/commonlibsse-ng
+	url = https://github.com/alandtse/CommonLibVR.git
+	branch = ng
+[submodule "extern/ClibUtil"]
+	path = extern/ClibUtil
+	url = https://github.com/powerof3/ClibUtil.git
+[submodule "extern/xbyak"]
+	path = extern/xbyak
+	url = https://github.com/herumi/xbyak.git
