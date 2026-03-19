@@ -18,7 +18,7 @@ cd DisabledReferenceIntegrityFix
 xmake build
 ```
 
-The compiled DLL will be generated in `build/windows/release/`.
+The compiled DLL will be generated in `build/windows/release/`
 
 ### Generate Visual Studio Project (Optional)
 ```batch
