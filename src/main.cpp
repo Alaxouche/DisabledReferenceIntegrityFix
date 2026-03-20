@@ -3,6 +3,7 @@
 #include "logger.h"
 #include "plugin.h"
 #include "events.h"
+#include "hooks.h"
 
 using namespace DisabledReferenceIntegrityFix;
 
@@ -18,6 +19,7 @@ SKSEPlugin_Load(const SKSE::LoadInterface* a_skse)
 		logger::warn("{}", w);
 	if (!cfg.enableLogging) {
 		SKSE::Init(a_skse);
+		InstallRuntimeHooks();
 		auto* messaging = SKSE::GetMessagingInterface();
 		if (!messaging || !messaging->RegisterListener("SKSE", MessageHandler)) {
 			return false;
@@ -34,12 +36,13 @@ SKSEPlugin_Load(const SKSE::LoadInterface* a_skse)
 		cfg.logLevel, cfg.verboseLogging);
 	logger::info("[CONFIG] FIX_REFERENCES={}, FIX_NAVMESHES={}",
 		cfg.fixReferences, cfg.fixNavmeshes);
-	logger::info("[CONFIG] AUTO_FIX_ON_CELL_LOAD={}, INCLUDE_DELETED={}",
-		cfg.autoFixOnCellLoad, cfg.includeDeleted);
+	logger::info("[CONFIG] EARLY_FIX_ON_LOAD3D={}, AUTO_FIX_ON_CELL_LOAD(fallback)={}, INCLUDE_DELETED={}",
+		cfg.earlyFixOnLoad3D, cfg.autoFixOnCellLoad, cfg.includeDeleted);
 	logger::info("[CONFIG] PATCH_INTERIOR={}, PATCH_EXTERIOR={}",
 		cfg.patchInterior, cfg.patchExterior);
 
 	SKSE::Init(a_skse);
+	InstallRuntimeHooks();
 
 	logger::info("Plugin: {} v{}", PluginInfo::NAME, PluginInfo::VERSION);
 	logger::info("Author: {}", PluginInfo::AUTHOR);

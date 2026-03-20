@@ -16,7 +16,6 @@ namespace DisabledReferenceIntegrityFix
 
 	constexpr std::size_t INITIAL_CELL_CAPACITY = 256;
 
-	// Running tally of everything the patcher has done this session.
 	struct Stats
 	{
 		uint32_t total_refs_checked           = 0;
@@ -27,9 +26,24 @@ namespace DisabledReferenceIntegrityFix
 		uint32_t navmeshes_checked            = 0;
 		uint32_t navmesh_vertices_fixed       = 0;
 		uint32_t cells_processed              = 0;
+
+		uint32_t hook_init_seen                      = 0;
+		uint32_t hook_init_fixed_pre_live            = 0;
+		uint32_t hook_init_skipped_has3d             = 0;
+		uint32_t hook_init_skipped_cell_attached     = 0;
+		uint32_t hook_init_skipped_refs_fully_loaded = 0;
+		uint32_t hook_load3d_gated                   = 0;
+
+		uint32_t hook_init_cair_z_ok         = 0;
+		uint32_t hook_init_below_already_dis = 0;
+		uint32_t hook_init_excluded          = 0;
+
+		uint32_t fallback_event_cells_fixed = 0;
+		uint32_t fallback_event_refs_fixed  = 0;
+		uint32_t fallback_event_navmesh_cells_fixed = 0;
+		uint32_t fallback_event_navmesh_vertices_fixed = 0;
 	};
 
-	// Per-worldspace numbers so the end-of-session summary has something useful to say.
 	struct WorldspaceStats
 	{
 		std::string name;
@@ -41,7 +55,6 @@ namespace DisabledReferenceIntegrityFix
 		uint32_t    navmesh_vertices_fixed = 0;
 	};
 
-	// What kind of fix (if any) we applied to a reference.
 	enum class RefFixKind
 	{
 		None,
@@ -58,5 +71,11 @@ namespace DisabledReferenceIntegrityFix
 
 	uint32_t FixCellReferences(RE::TESObjectCELL* a_cell);
 
+	uint32_t FixCellNavmeshesOnly(RE::TESObjectCELL* a_cell);
+
 	void FixAllLoadedCells();
+
+	void LogHookInstrumentation(const char* a_reason);
+
+	void MaybeLogHookInstrumentation(const char* a_reason, uint64_t a_intervalMs = 5000);
 }

@@ -13,11 +13,11 @@ namespace DisabledReferenceIntegrityFix::Config
 	bool     VERBOSE_LOGGING    = false;
 	bool     FIX_REFERENCES     = true;
 	bool     FIX_NAVMESHES      = false;
+	bool     EARLY_FIX_ON_LOAD3D = true;
 	bool     PATCH_EXTERIOR     = true;
 	bool     PATCH_INTERIOR     = true;
 	bool     AUTO_FIX_ON_CELL_LOAD = true;
 	bool     INCLUDE_DELETED    = false;
-	bool     FIX_ALL_INIT_DISABLED = false;
 	uint32_t MAX_REFS_PER_BATCH = 0;
 	int      LOG_LEVEL          = 3;
 	std::unordered_set<std::string> EXCLUDED_MODS;
@@ -63,7 +63,6 @@ namespace DisabledReferenceIntegrityFix
 			return result;
 		}
 
-		/// Accepts the usual truth-y strings: 1/true/yes/on → true, 0/false/no/off → false.
 		bool ParseBool(std::string_view v)
 		{
 			if (v.empty()) return false;
@@ -105,7 +104,7 @@ namespace DisabledReferenceIntegrityFix
 		}
 
 		if (!cfg.iniFound) {
-			return cfg;  // defaults remain
+			return cfg;
 		}
 
 		std::ifstream in(cfg.iniPath);
@@ -136,11 +135,12 @@ namespace DisabledReferenceIntegrityFix
 				else if (key == "verbose_logging")       { cfg.verboseLogging    = ParseBool(val); }
 				else if (key == "fix_references")        { cfg.fixReferences     = ParseBool(val); }
 				else if (key == "fix_navmeshes")         { cfg.fixNavmeshes      = ParseBool(val); }
+				else if (key == "early_fix_on_load3d")   { cfg.earlyFixOnLoad3D  = ParseBool(val); }
 				else if (key == "auto_fix_on_cell_load") { cfg.autoFixOnCellLoad = ParseBool(val); }
+	
 				else if (key == "patch_interior")        { cfg.patchInterior     = ParseBool(val); }
 				else if (key == "patch_exterior")        { cfg.patchExterior     = ParseBool(val); }
 				else if (key == "include_deleted_refs")  { cfg.includeDeleted    = ParseBool(val); }
-				else if (key == "fix_all_init_disabled") { cfg.fixAllInitDisabled = ParseBool(val); }
 				else if (key == "max_refs_per_batch")    { cfg.maxRefsPerBatch   = static_cast<uint32_t>(std::stoul(std::string(val))); }
 				else if (key == "log_level") {
 					cfg.logLevel = std::stoi(std::string(val));
@@ -171,11 +171,11 @@ namespace DisabledReferenceIntegrityFix
 		VERBOSE_LOGGING     = cfg.verboseLogging;
 		FIX_REFERENCES      = cfg.fixReferences;
 		FIX_NAVMESHES       = cfg.fixNavmeshes;
+		EARLY_FIX_ON_LOAD3D = cfg.earlyFixOnLoad3D;
 		PATCH_EXTERIOR      = cfg.patchExterior;
 		PATCH_INTERIOR      = cfg.patchInterior;
 		AUTO_FIX_ON_CELL_LOAD = cfg.autoFixOnCellLoad;
 		INCLUDE_DELETED     = cfg.includeDeleted;
-		FIX_ALL_INIT_DISABLED = cfg.fixAllInitDisabled;
 		MAX_REFS_PER_BATCH  = cfg.maxRefsPerBatch;
 		LOG_LEVEL           = cfg.logLevel;
 		EXCLUDED_MODS       = cfg.excludedMods;

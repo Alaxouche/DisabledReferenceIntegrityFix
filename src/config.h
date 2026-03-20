@@ -15,11 +15,11 @@ namespace DisabledReferenceIntegrityFix
 		bool        verboseLogging   = false;
 		bool        fixReferences    = true;
 		bool        fixNavmeshes     = false;
+		bool        earlyFixOnLoad3D = true;
 		bool        patchExterior    = true;
 		bool        patchInterior    = true;
 		bool        autoFixOnCellLoad = true;
 		bool        includeDeleted   = false;
-		bool        fixAllInitDisabled = false;
 		uint32_t    maxRefsPerBatch  = 0;
 		int         logLevel         = 3;
 		bool        iniFound         = false;
@@ -46,6 +46,8 @@ namespace DisabledReferenceIntegrityFix::Config
 
 	extern bool FIX_NAVMESHES;
 
+	extern bool EARLY_FIX_ON_LOAD3D;
+
 	extern bool PATCH_EXTERIOR;
 
 	extern bool PATCH_INTERIOR;
@@ -53,8 +55,6 @@ namespace DisabledReferenceIntegrityFix::Config
 	extern bool AUTO_FIX_ON_CELL_LOAD;
 
 	extern bool INCLUDE_DELETED;
-
-	extern bool FIX_ALL_INIT_DISABLED;
 
 	extern uint32_t MAX_REFS_PER_BATCH;
 

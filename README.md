@@ -44,3 +44,7 @@ Set environment variables to redirect build output:
 - **Language**: C++23
 - **API**: SKSE64 Plugin Interface
 - **Build System**: XMake
+- **Load Path**:
+	- Early `TESObjectREFR::InitItemImpl` pre-normalization for refs still pre-live.
+	- Early `TESObjectREFR::Load3D` gate to block invalid refs before 3D load.
+	- Event-based cell scan as fallback for already loaded content.

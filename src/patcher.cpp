@@ -15,6 +15,9 @@ namespace DisabledReferenceIntegrityFix
 
 	namespace
 	{
+		std::atomic<uint64_t> g_last_hook_log_ms{ 0 };
+
+
 		bool IsZBelowMin(float z)
 		{
 			return z < Z_FLOOR;
@@ -73,12 +76,48 @@ namespace DisabledReferenceIntegrityFix
 				             : isReal(baseEdid) ? baseEdid
 				             : FormTypeTag(base);
 
+			auto* cell = ref ? ref->GetParentCell() : nullptr;
+			const auto cellID = cell ? cell->GetFormID() : 0;
+			const auto cellType = (cell && cell->IsInteriorCell()) ? "int" : "ext";
+			int32_t cellX = 0;
+			int32_t cellY = 0;
+			if (cell) {
+				if (auto* ext = cell->GetCoordinates()) {
+					cellX = ext->cellX;
+					cellY = ext->cellY;
+				}
+			}
+			const auto baseSrc = GetFormSourceFile(base);
+
 			if (std::fabs(oldZ - newZ) > Z_EPSILON)
-				logger::info("[{}] 0x{:08X} \"{}\" ({})  Z:{:.0f}->{:.0f}  {}",
-					tag, id, label, src, oldZ, newZ, action);
+				logger::info("[{}] ref=0x{:08X} base=0x{:08X} \"{}\" Z:{:.0f}->{:.0f} action={} cell=0x{:08X} cellType={} cellXY=({}, {}) srcRef={} srcBase={}",
+					tag,
+					id,
+					base ? base->GetFormID() : 0,
+					label,
+					oldZ,
+					newZ,
+					action,
+					cellID,
+					cellType,
+					cellX,
+					cellY,
+					src,
+					baseSrc);
 			else
-				logger::info("[{}] 0x{:08X} \"{}\" ({})  Z:{:.0f}  {}",
-					tag, id, label, src, oldZ, action);
+				logger::info("[{}] ref=0x{:08X} base=0x{:08X} \"{}\" Z:{:.0f} action={} cell=0x{:08X} cellType={} cellXY=({}, {}) srcRef={} srcBase={}",
+					tag,
+					id,
+					base ? base->GetFormID() : 0,
+					label,
+					oldZ,
+					action,
+					cellID,
+					cellType,
+					cellX,
+					cellY,
+					src,
+					baseSrc);
 		}
 
 		RE::NiPoint3 GetRefLocation(const RE::TESObjectREFR* ref)
@@ -120,78 +159,6 @@ namespace DisabledReferenceIntegrityFix
 			}
 		}
 
-		static constexpr std::string_view kBlacklistedMasters[] = {
-			"skyrim.esm", "update.esm", "dawnguard.esm",
-			"hearthfires.esm", "dragonborn.esm", "dyndolod.esp",
-		};
-
-		bool IsBlacklistedMaster(std::string_view fileName)
-		{
-			if (fileName.empty()) return false;
-			std::string lowerFileName(fileName);
-			for (auto& c : lowerFileName)
-				c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-			
-			for (const auto& name : kBlacklistedMasters) {
-				if (lowerFileName == name) {
-					return true;
-				}
-			}
-			return false;
-		}
-
-		bool HasBoundScripts(const RE::TESObjectREFR* ref)
-		{
-			if (!ref) return false;
-			auto* vm = RE::BSScript::Internal::VirtualMachine::GetSingleton();
-			if (!vm) return false;
-			auto* handlePolicy = vm->GetObjectHandlePolicy();
-			if (!handlePolicy) return false;
-			const RE::VMHandle handle = handlePolicy->GetHandleForObject(
-				RE::FormType::Reference, ref);
-			if (handle == handlePolicy->EmptyHandle()) return false;
-			RE::BSSpinLockGuard locker(vm->attachedScriptsLock);
-			return vm->attachedScripts.contains(handle);
-		}
-
-		bool IsExcluded(RE::TESObjectREFR* ref)
-		{
-			if (!ref) return true;
-
-			if (HasBoundScripts(ref)) return true;
-
-			if (ref->extraList.HasType<RE::ExtraEnableStateParent>()) return true;
-
-			if (const auto* base = ref->GetBaseObject()) {
-				const auto ft = base->GetFormType();
-				if (ft == RE::FormType::Container ||
-					ft == RE::FormType::NPC ||
-					ft == RE::FormType::LeveledNPC ||
-					ft == RE::FormType::ActorCharacter ||
-					ft == RE::FormType::TalkingActivator) return true;
-			}
-
-			if (ref->extraList.HasType<RE::ExtraPrimitive>()) {
-				const auto* base = ref->GetBaseObject();
-				if (base && base->Is(RE::FormType::Activator)) return true;
-			}
-
-			if (const auto* lastFile = ref->GetFile(-1)) {
-				if (IsBlacklistedMaster(lastFile->fileName)) return true;
-				std::string lowerName(lastFile->fileName);
-				for (auto& c : lowerName)
-					c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-				if (EXCLUDED_MODS.contains(lowerName)) return true;
-			}
-
-			if (EXCLUDED_FORMS.contains(ref->GetFormID())) return true;
-			if (const auto* base = ref->GetBaseObject()) {
-				if (EXCLUDED_FORMS.contains(base->GetFormID())) return true;
-			}
-
-			return false;
-		}
-
 		RefFixKind FixDeletedReference(RE::TESObjectREFR* ref)
 		{
 			if (!ref || !ref->IsDeleted()) return RefFixKind::None;
@@ -228,28 +195,30 @@ namespace DisabledReferenceIntegrityFix
 		{
 			if (!ref || !FIX_REFERENCES) return RefFixKind::None;
 
-			if (IsExcluded(ref)) {
-				if (VERBOSE_LOGGING && ENABLE_LOGGING) {
-					const auto* lastFile = ref->GetFile(-1);
-					const auto* base     = ref->GetBaseObject();
-					logger::trace("[skip] 0x{:08X} {} type={}{}{}{}",
-						ref->GetFormID(),
-						lastFile ? lastFile->fileName : "<none>",
-						base ? static_cast<int>(base->GetFormType()) : -1,
-						ref->extraList.HasType<RE::ExtraPrimitive>()        ? " prim"    : "",
-						HasBoundScripts(ref)                                ? " scripts" : "",
-						ref->extraList.HasType<RE::ExtraEnableStateParent>()? " xesp"    : "");
+			const auto currentPos = GetRefLocation(ref);
+			const float z = currentPos.z;
+			auto* base = ref->GetBaseObject();
+
+			const bool canApplyInitDisabledRule = ref->IsInitiallyDisabled() &&
+				!ref->IsPersistent() &&
+				!ref->HasQuestObject() &&
+				!ref->extraList.HasType<RE::ExtraEnableStateParent>();
+
+			if (canApplyInitDisabledRule) {
+				if (base && !IsMarkerBase(base) && std::fabs(z - Z_FLOOR) > Z_EPSILON) {
+					RE::NiPoint3 newPos = currentPos;
+					newPos.z = Z_FLOOR;
+					SetRefLocation(ref, newPos);
+					LogRefFix("INIT-DISBL", ref, base, z, Z_FLOOR, "R2(user-rule)");
+					g_stats.refs_initially_disabled_fixed++;
+					g_stats.total_refs_fixed++;
+					return RefFixKind::InitiallyDisabled;
 				}
 				return RefFixKind::None;
 			}
 
-			auto* base = ref->GetBaseObject();
-			if (!base || IsMarkerBase(base) || ref->IsDeleted()) return RefFixKind::None;
-
-			const auto  currentPos = GetRefLocation(ref);
-			const float z          = currentPos.z;
-
 			if (z <= Z_FLOOR && !ref->IsInitiallyDisabled()) {
+				if (!base || IsMarkerBase(base) || ref->IsDeleted()) return RefFixKind::None;
 				ref->formFlags |= RE::TESObjectREFR::RecordFlags::kInitiallyDisabled;
 				if (!ref->IsDisabled()) ref->Disable();
 				AttachPlayerEnableParentOpposite(ref);
@@ -259,28 +228,8 @@ namespace DisabledReferenceIntegrityFix
 				return RefFixKind::BelowMin;
 			}
 
-			if (ref->IsInitiallyDisabled() && std::fabs(z - Z_FLOOR) > Z_EPSILON) {
-				const bool canAttach = !ref->extraList.HasType<RE::ExtraLinkedRef>();
-
-				RE::NiPoint3 newPos = currentPos;
-				newPos.z = Z_FLOOR;
-				SetRefLocation(ref, newPos);
-
-				if (FIX_ALL_INIT_DISABLED || canAttach)
-					AttachPlayerEnableParentOpposite(ref);
-
-				const char* rule = FIX_ALL_INIT_DISABLED ? "R3(exp)" :
-					canAttach ? "R2(safe)" : "R2(z-only)";
-				LogRefFix("INIT-DISBL", ref, base, z, Z_FLOOR, rule);
-
-				g_stats.refs_initially_disabled_fixed++;
-				g_stats.total_refs_fixed++;
-				return RefFixKind::InitiallyDisabled;
-			}
-
 			return RefFixKind::None;
 		}
-
 		uint32_t FixNavmeshVertices(RE::TESObjectCELL* cell)
 		{
 			if (!cell || !FIX_NAVMESHES) return 0;
@@ -406,7 +355,6 @@ namespace DisabledReferenceIntegrityFix
 		const uint32_t navmeshFixes = FixNavmeshVertices(cell);
 		wsStats.navmesh_vertices_fixed += navmeshFixes;
 
-		// Only log the cell result if we actually did something. No noise for clean cells.
 		if ((fixedCount > 0 || navmeshFixes > 0) && ENABLE_LOGGING) {
 			const char* cellName = cell->GetName();
 			logger::info("[cell] {} (0x{:08X}) {}: {} fix(es)",
@@ -421,14 +369,61 @@ namespace DisabledReferenceIntegrityFix
 		return fixedCount + navmeshFixes;
 	}
 
+	uint32_t FixCellNavmeshesOnly(RE::TESObjectCELL* cell)
+	{
+		if (!cell || !g_plugin_enabled || !FIX_NAVMESHES) return 0;
+
+		const bool isInterior = cell->IsInteriorCell();
+		if (isInterior && !PATCH_INTERIOR) return 0;
+		if (!isInterior && !PATCH_EXTERIOR) return 0;
+
+		const uint32_t navmeshFixes = FixNavmeshVertices(cell);
+		if (navmeshFixes > 0 && ENABLE_LOGGING) {
+			const char* cellName = cell->GetName();
+			logger::info("[cell-navmesh] {} (0x{:08X}) {}: {} navmesh vert(s) fixed",
+				cellName ? cellName : "?",
+				cell->GetFormID(),
+				isInterior ? "Int" : "Ext",
+				navmeshFixes);
+		}
+
+		return navmeshFixes;
+	}
+
 	void FixAllLoadedCells()
 	{
-		// Reset caches and stats for a fresh scan.
+		const auto hook_init_seen                      = g_stats.hook_init_seen;
+		const auto hook_init_fixed_pre_live            = g_stats.hook_init_fixed_pre_live;
+		const auto hook_init_skipped_has3d             = g_stats.hook_init_skipped_has3d;
+		const auto hook_init_skipped_cell_attached     = g_stats.hook_init_skipped_cell_attached;
+		const auto hook_init_skipped_refs_fully_loaded = g_stats.hook_init_skipped_refs_fully_loaded;
+		const auto hook_load3d_gated                   = g_stats.hook_load3d_gated;
+		const auto fallback_event_cells_fixed          = g_stats.fallback_event_cells_fixed;
+		const auto fallback_event_refs_fixed           = g_stats.fallback_event_refs_fixed;
+		const auto fallback_event_navmesh_cells_fixed  = g_stats.fallback_event_navmesh_cells_fixed;
+		const auto fallback_event_navmesh_vertices_fixed = g_stats.fallback_event_navmesh_vertices_fixed;
+		const auto hook_init_cair_z_ok                 = g_stats.hook_init_cair_z_ok;
+		const auto hook_init_below_already_dis         = g_stats.hook_init_below_already_dis;
+		const auto hook_init_excluded                  = g_stats.hook_init_excluded;
+
 		g_processed_cells.clear();
 		g_processed_cells.reserve(INITIAL_CELL_CAPACITY);
 		g_worldspace_stats.clear();
 		g_worldspace_stats.reserve(INITIAL_WORLDSPACE_CAPACITY);
 		g_stats = Stats{};
+		g_stats.hook_init_seen                      = hook_init_seen;
+		g_stats.hook_init_fixed_pre_live            = hook_init_fixed_pre_live;
+		g_stats.hook_init_skipped_has3d             = hook_init_skipped_has3d;
+		g_stats.hook_init_skipped_cell_attached     = hook_init_skipped_cell_attached;
+		g_stats.hook_init_skipped_refs_fully_loaded = hook_init_skipped_refs_fully_loaded;
+		g_stats.hook_load3d_gated                   = hook_load3d_gated;
+		g_stats.fallback_event_cells_fixed          = fallback_event_cells_fixed;
+		g_stats.fallback_event_refs_fixed           = fallback_event_refs_fixed;
+		g_stats.fallback_event_navmesh_cells_fixed  = fallback_event_navmesh_cells_fixed;
+		g_stats.fallback_event_navmesh_vertices_fixed = fallback_event_navmesh_vertices_fixed;
+		g_stats.hook_init_cair_z_ok                 = hook_init_cair_z_ok;
+		g_stats.hook_init_below_already_dis         = hook_init_below_already_dis;
+		g_stats.hook_init_excluded                  = hook_init_excluded;
 
 		auto* player = RE::PlayerCharacter::GetSingleton();
 		g_playerHandle = player
@@ -469,6 +464,53 @@ namespace DisabledReferenceIntegrityFix
 
 			if (total == 0)
 				logger::info("[Disabled Reference Integrity Fix] Worldspace is clean, no objects below -30K.");
+
+			logger::info("[hooks] initSeen:{} initFixedPreLive:{} initSkip(3d:{} attached:{} refsLoaded:{}) load3dGated:{} | diag(cairOk:{} belowDis:{} excl:{}) | fallbackCells:{} fallbackRefFixes:{} navmeshEventCells:{} navmeshEventVerts:{}",
+				g_stats.hook_init_seen,
+				g_stats.hook_init_fixed_pre_live,
+				g_stats.hook_init_skipped_has3d,
+				g_stats.hook_init_skipped_cell_attached,
+				g_stats.hook_init_skipped_refs_fully_loaded,
+				g_stats.hook_load3d_gated,
+				g_stats.hook_init_cair_z_ok,
+				g_stats.hook_init_below_already_dis,
+				g_stats.hook_init_excluded,
+				g_stats.fallback_event_cells_fixed,
+				g_stats.fallback_event_refs_fixed,
+				g_stats.fallback_event_navmesh_cells_fixed,
+				g_stats.fallback_event_navmesh_vertices_fixed);
+		}
+	}
+
+	void LogHookInstrumentation(const char* a_reason)
+	{
+		if (!ENABLE_LOGGING) return;
+		logger::info("[hooks:{}] initSeen:{} initFixedPreLive:{} initSkip(3d:{} attached:{} refsLoaded:{}) load3dGated:{} | diag(cairOk:{} belowDis:{} excl:{}) | fallbackCells:{} fallbackRefFixes:{} navmeshEventCells:{} navmeshEventVerts:{}",
+			a_reason ? a_reason : "snapshot",
+			g_stats.hook_init_seen,
+			g_stats.hook_init_fixed_pre_live,
+			g_stats.hook_init_skipped_has3d,
+			g_stats.hook_init_skipped_cell_attached,
+			g_stats.hook_init_skipped_refs_fully_loaded,
+			g_stats.hook_load3d_gated,
+			g_stats.hook_init_cair_z_ok,
+			g_stats.hook_init_below_already_dis,
+			g_stats.hook_init_excluded,
+			g_stats.fallback_event_cells_fixed,
+			g_stats.fallback_event_refs_fixed,
+			g_stats.fallback_event_navmesh_cells_fixed,
+			g_stats.fallback_event_navmesh_vertices_fixed);
+	}
+
+	void MaybeLogHookInstrumentation(const char* a_reason, uint64_t a_intervalMs)
+	{
+		if (!ENABLE_LOGGING) return;
+		const uint64_t now  = static_cast<uint64_t>(::GetTickCount64());
+		uint64_t last = g_last_hook_log_ms.load(std::memory_order_relaxed);
+		if (now - last < a_intervalMs) return;
+
+		if (g_last_hook_log_ms.compare_exchange_strong(last, now, std::memory_order_relaxed)) {
+			LogHookInstrumentation(a_reason);
 		}
 	}
 }
