@@ -2,7 +2,7 @@ set_xmakever('3.0.1')
 includes('extern/commonlibsse-ng')
 
 set_project('DisabledReferenceIntegrityFix')
-set_version('1.1.0')
+set_version('1.1.1')
 set_license('GPL-3.0')
 
 set_languages('c++23')

@@ -1,6 +1,7 @@
 #include "pch.h"
 #include "patcher.h"
 #include "config.h"
+#include "utils.h"
 
 using namespace DisabledReferenceIntegrityFix::Config;
 
@@ -17,26 +18,21 @@ namespace DisabledReferenceIntegrityFix
 	{
 		std::atomic<uint64_t> g_last_hook_log_ms{ 0 };
 
+		bool IsExcludedByConfig(const RE::TESObjectREFR* ref)
+		{
+			if (!ref) return true;
+			if (EXCLUDED_FORMS.contains(ref->GetFormID())) return true;
+			if (IsFormFromExcludedMod(ref)) return true;
+			if (const auto* base = ref->GetBaseObject()) {
+				if (EXCLUDED_FORMS.contains(base->GetFormID())) return true;
+				if (IsFormFromExcludedMod(base)) return true;
+			}
+			return false;
+		}
 
 		bool IsZBelowMin(float z)
 		{
 			return z < Z_FLOOR;
-		}
-
-		std::string GetFormSourceFile(const RE::TESForm* form)
-		{
-			if (!form) return "<null>";
-			if (const auto* file = form->GetFile(0)) return file->fileName;
-			return "<unknown>";
-		}
-
-		bool IsMarkerBase(RE::TESForm* form)
-		{
-			if (!form) return false;
-			if (auto* obj = form->As<RE::TESObject>()) {
-				return obj->IsMarker();
-			}
-			return false;
 		}
 
 		const char* FormTypeTag(const RE::TESForm* form)
@@ -54,70 +50,6 @@ namespace DisabledReferenceIntegrityFix
 			case RE::FormType::Container:     return "CONT";
 			default:                          return "????";
 			}
-		}
-
-		void LogRefFix(
-			const char*              tag,
-			const RE::TESObjectREFR* ref,
-			const RE::TESForm*       base,
-			float                    oldZ,
-			float                    newZ,
-			const char*              action)
-		{
-			if (!ENABLE_LOGGING) return;
-			const uint32_t id  = ref  ? ref->GetFormID() : 0;
-			const auto     src = GetFormSourceFile(ref);
-
-			auto isReal = [](const char* s) { return s && s[0] && s[0] != '<'; };
-
-			const char* dispName = base ? base->GetName() : nullptr;
-			const char* baseEdid = base ? base->GetFormEditorID() : nullptr;
-			const char* label    = isReal(dispName) ? dispName
-				             : isReal(baseEdid) ? baseEdid
-				             : FormTypeTag(base);
-
-			auto* cell = ref ? ref->GetParentCell() : nullptr;
-			const auto cellID = cell ? cell->GetFormID() : 0;
-			const auto cellType = (cell && cell->IsInteriorCell()) ? "int" : "ext";
-			int32_t cellX = 0;
-			int32_t cellY = 0;
-			if (cell) {
-				if (auto* ext = cell->GetCoordinates()) {
-					cellX = ext->cellX;
-					cellY = ext->cellY;
-				}
-			}
-			const auto baseSrc = GetFormSourceFile(base);
-
-			if (std::fabs(oldZ - newZ) > Z_EPSILON)
-				logger::info("[{}] ref=0x{:08X} base=0x{:08X} \"{}\" Z:{:.0f}->{:.0f} action={} cell=0x{:08X} cellType={} cellXY=({}, {}) srcRef={} srcBase={}",
-					tag,
-					id,
-					base ? base->GetFormID() : 0,
-					label,
-					oldZ,
-					newZ,
-					action,
-					cellID,
-					cellType,
-					cellX,
-					cellY,
-					src,
-					baseSrc);
-			else
-				logger::info("[{}] ref=0x{:08X} base=0x{:08X} \"{}\" Z:{:.0f} action={} cell=0x{:08X} cellType={} cellXY=({}, {}) srcRef={} srcBase={}",
-					tag,
-					id,
-					base ? base->GetFormID() : 0,
-					label,
-					oldZ,
-					action,
-					cellID,
-					cellType,
-					cellX,
-					cellY,
-					src,
-					baseSrc);
 		}
 
 		RE::NiPoint3 GetRefLocation(const RE::TESObjectREFR* ref)
@@ -162,6 +94,7 @@ namespace DisabledReferenceIntegrityFix
 		RefFixKind FixDeletedReference(RE::TESObjectREFR* ref)
 		{
 			if (!ref || !ref->IsDeleted()) return RefFixKind::None;
+			if (IsExcludedByConfig(ref)) return RefFixKind::None;
 
 			auto* base = ref->GetBaseObject();
 			if (!base) {
@@ -184,7 +117,7 @@ namespace DisabledReferenceIntegrityFix
 			if (!ref->IsDisabled()) ref->Disable();
 			AttachPlayerEnableParentOpposite(ref);
 
-			LogRefFix("DELETED", ref, base, pos.z, Z_FLOOR, "Recover+InitDisabled+EnableParent");
+			LogRefFix("DELETED", ref, pos.z, Z_FLOOR, "Recover+InitDisabled+EnableParent");
 
 			g_stats.deleted_refs_fixed++;
 			g_stats.total_refs_fixed++;
@@ -194,6 +127,7 @@ namespace DisabledReferenceIntegrityFix
 		RefFixKind FixReferenceZ(RE::TESObjectREFR* ref)
 		{
 			if (!ref || !FIX_REFERENCES) return RefFixKind::None;
+			if (IsExcludedByConfig(ref)) return RefFixKind::None;
 
 			const auto currentPos = GetRefLocation(ref);
 			const float z = currentPos.z;
@@ -209,7 +143,7 @@ namespace DisabledReferenceIntegrityFix
 					RE::NiPoint3 newPos = currentPos;
 					newPos.z = Z_FLOOR;
 					SetRefLocation(ref, newPos);
-					LogRefFix("INIT-DISBL", ref, base, z, Z_FLOOR, "R2(user-rule)");
+					LogRefFix("INIT-DISBL", ref, z, Z_FLOOR, "R2(user-rule)");
 					g_stats.refs_initially_disabled_fixed++;
 					g_stats.total_refs_fixed++;
 					return RefFixKind::InitiallyDisabled;
@@ -222,7 +156,7 @@ namespace DisabledReferenceIntegrityFix
 				ref->formFlags |= RE::TESObjectREFR::RecordFlags::kInitiallyDisabled;
 				if (!ref->IsDisabled()) ref->Disable();
 				AttachPlayerEnableParentOpposite(ref);
-				LogRefFix("BELOW-30K", ref, base, z, z, "InitDisabled+Disable+EnableParent");
+				LogRefFix("BELOW-30K", ref, z, z, "InitDisabled+Disable+EnableParent");
 				g_stats.refs_below_min++;
 				g_stats.total_refs_fixed++;
 				return RefFixKind::BelowMin;
@@ -230,6 +164,7 @@ namespace DisabledReferenceIntegrityFix
 
 			return RefFixKind::None;
 		}
+
 		uint32_t FixNavmeshVertices(RE::TESObjectCELL* cell)
 		{
 			if (!cell || !FIX_NAVMESHES) return 0;
@@ -271,6 +206,43 @@ namespace DisabledReferenceIntegrityFix
 			return fixed;
 		}
 
+	}
+
+	void LogRefFix(const char* tag, const RE::TESObjectREFR* ref, float oldZ, float newZ, const char* action)
+	{
+		if (!ENABLE_LOGGING || !ref) return;
+
+		auto* base = ref->GetBaseObject();
+
+		auto isReal = [](const char* s) { return s && s[0] && s[0] != '<'; };
+
+		const char* dispName = base ? base->GetName() : nullptr;
+		const char* baseEdid = base ? base->GetFormEditorID() : nullptr;
+		const char* label    = isReal(dispName) ? dispName
+			             : isReal(baseEdid) ? baseEdid
+			             : FormTypeTag(base);
+
+		auto* cell = ref->GetParentCell();
+		const auto cellID   = cell ? cell->GetFormID() : 0;
+		const auto cellType = (cell && cell->IsInteriorCell()) ? "int" : "ext";
+		int32_t cellX = 0, cellY = 0;
+		if (cell) {
+			if (auto* ext = cell->GetCoordinates()) {
+				cellX = ext->cellX;
+				cellY = ext->cellY;
+			}
+		}
+
+		if (std::fabs(oldZ - newZ) > Z_EPSILON)
+			logger::info("[{}] ref=0x{:08X} base=0x{:08X} \"{}\" Z:{:.0f}->{:.0f} action={} cell=0x{:08X} cellType={} cellXY=({}, {}) srcRef={} srcBase={}",
+				tag, ref->GetFormID(), base ? base->GetFormID() : 0, label,
+				oldZ, newZ, action, cellID, cellType, cellX, cellY,
+				FormSourceFile(ref), FormSourceFile(base));
+		else
+			logger::info("[{}] ref=0x{:08X} base=0x{:08X} \"{}\" Z:{:.0f} action={} cell=0x{:08X} cellType={} cellXY=({}, {}) srcRef={} srcBase={}",
+				tag, ref->GetFormID(), base ? base->GetFormID() : 0, label,
+				oldZ, action, cellID, cellType, cellX, cellY,
+				FormSourceFile(ref), FormSourceFile(base));
 	}
 
 	uint32_t FixCellReferences(RE::TESObjectCELL* cell)
@@ -403,7 +375,6 @@ namespace DisabledReferenceIntegrityFix
 		const auto fallback_event_navmesh_cells_fixed  = g_stats.fallback_event_navmesh_cells_fixed;
 		const auto fallback_event_navmesh_vertices_fixed = g_stats.fallback_event_navmesh_vertices_fixed;
 		const auto hook_init_cair_z_ok                 = g_stats.hook_init_cair_z_ok;
-		const auto hook_init_below_already_dis         = g_stats.hook_init_below_already_dis;
 		const auto hook_init_excluded                  = g_stats.hook_init_excluded;
 
 		g_processed_cells.clear();
@@ -422,7 +393,6 @@ namespace DisabledReferenceIntegrityFix
 		g_stats.fallback_event_navmesh_cells_fixed  = fallback_event_navmesh_cells_fixed;
 		g_stats.fallback_event_navmesh_vertices_fixed = fallback_event_navmesh_vertices_fixed;
 		g_stats.hook_init_cair_z_ok                 = hook_init_cair_z_ok;
-		g_stats.hook_init_below_already_dis         = hook_init_below_already_dis;
 		g_stats.hook_init_excluded                  = hook_init_excluded;
 
 		auto* player = RE::PlayerCharacter::GetSingleton();
@@ -465,7 +435,7 @@ namespace DisabledReferenceIntegrityFix
 			if (total == 0)
 				logger::info("[Disabled Reference Integrity Fix] Worldspace is clean, no objects below -30K.");
 
-			logger::info("[hooks] initSeen:{} initFixedPreLive:{} initSkip(3d:{} attached:{} refsLoaded:{}) load3dGated:{} | diag(cairOk:{} belowDis:{} excl:{}) | fallbackCells:{} fallbackRefFixes:{} navmeshEventCells:{} navmeshEventVerts:{}",
+			logger::info("[hooks] initSeen:{} initFixedPreLive:{} initSkip(3d:{} attached:{} refsLoaded:{}) load3dGated:{} | diag(cairOk:{} excl:{}) | fallbackCells:{} fallbackRefFixes:{} navmeshEventCells:{} navmeshEventVerts:{}",
 				g_stats.hook_init_seen,
 				g_stats.hook_init_fixed_pre_live,
 				g_stats.hook_init_skipped_has3d,
@@ -473,7 +443,6 @@ namespace DisabledReferenceIntegrityFix
 				g_stats.hook_init_skipped_refs_fully_loaded,
 				g_stats.hook_load3d_gated,
 				g_stats.hook_init_cair_z_ok,
-				g_stats.hook_init_below_already_dis,
 				g_stats.hook_init_excluded,
 				g_stats.fallback_event_cells_fixed,
 				g_stats.fallback_event_refs_fixed,
@@ -485,7 +454,7 @@ namespace DisabledReferenceIntegrityFix
 	void LogHookInstrumentation(const char* a_reason)
 	{
 		if (!ENABLE_LOGGING) return;
-		logger::info("[hooks:{}] initSeen:{} initFixedPreLive:{} initSkip(3d:{} attached:{} refsLoaded:{}) load3dGated:{} | diag(cairOk:{} belowDis:{} excl:{}) | fallbackCells:{} fallbackRefFixes:{} navmeshEventCells:{} navmeshEventVerts:{}",
+		logger::info("[hooks:{}] initSeen:{} initFixedPreLive:{} initSkip(3d:{} attached:{} refsLoaded:{}) load3dGated:{} | diag(cairOk:{} excl:{}) | fallbackCells:{} fallbackRefFixes:{} navmeshEventCells:{} navmeshEventVerts:{}",
 			a_reason ? a_reason : "snapshot",
 			g_stats.hook_init_seen,
 			g_stats.hook_init_fixed_pre_live,
@@ -494,7 +463,6 @@ namespace DisabledReferenceIntegrityFix
 			g_stats.hook_init_skipped_refs_fully_loaded,
 			g_stats.hook_load3d_gated,
 			g_stats.hook_init_cair_z_ok,
-			g_stats.hook_init_below_already_dis,
 			g_stats.hook_init_excluded,
 			g_stats.fallback_event_cells_fixed,
 			g_stats.fallback_event_refs_fixed,

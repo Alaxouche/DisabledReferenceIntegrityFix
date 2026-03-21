@@ -2,6 +2,7 @@
 #include "hooks.h"
 #include "config.h"
 #include "patcher.h"
+#include "utils.h"
 
 using namespace DisabledReferenceIntegrityFix::Config;
 
@@ -9,69 +10,6 @@ namespace DisabledReferenceIntegrityFix
 {
 	namespace
 	{
-		const char* FormSourceFile(const RE::TESForm* a_form)
-		{
-			if (!a_form) return "<null>";
-			if (const auto* file = a_form->GetFile(0)) return file->fileName;
-			return "<unknown>";
-		}
-
-		void LogRefFix(const char* a_stage, RE::TESObjectREFR* a_ref, float a_oldZ, float a_newZ, const char* a_reason)
-		{
-			if (!ENABLE_LOGGING || !a_ref) return;
-
-			auto* cell = a_ref->GetParentCell();
-			const auto cellID = cell ? cell->GetFormID() : 0;
-			auto* base = a_ref->GetBaseObject();
-			const auto baseID = base ? base->GetFormID() : 0;
-			const auto cellType = (cell && cell->IsInteriorCell()) ? "int" : "ext";
-			int32_t cellX = 0;
-			int32_t cellY = 0;
-			if (cell) {
-				if (auto* ext = cell->GetCoordinates()) {
-					cellX = ext->cellX;
-					cellY = ext->cellY;
-				}
-			}
-
-			logger::info("[ref-fix] stage={} reason={} ref=0x{:08X} oldZ={:.3f} newZ={:.3f} cell=0x{:08X} cellType={} cellXY=({}, {}) base=0x{:08X} srcRef={} srcBase={}",
-				a_stage ? a_stage : "?",
-				a_reason ? a_reason : "?",
-				a_ref->GetFormID(),
-				a_oldZ,
-				a_newZ,
-				cellID,
-				cellType,
-				cellX,
-				cellY,
-				baseID,
-				FormSourceFile(a_ref),
-				FormSourceFile(base));
-		}
-		bool IsMarkerBase(RE::TESForm* a_form)
-		{
-			if (!a_form) return false;
-			if (auto* obj = a_form->As<RE::TESObject>()) {
-				return obj->IsMarker();
-			}
-			return false;
-		}
-
-		bool IsBlacklistedMaster(std::string_view a_fileName)
-		{
-			if (a_fileName.empty()) return false;
-			std::string lower(a_fileName);
-			for (auto& c : lower)
-				c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-
-			return lower == "skyrim.esm" ||
-				lower == "update.esm" ||
-				lower == "dawnguard.esm" ||
-				lower == "hearthfires.esm" ||
-				lower == "dragonborn.esm" ||
-				lower == "dyndolod.esp";
-		}
-
 		bool IsExcludedFast(RE::TESObjectREFR* a_ref)
 		{
 			if (!a_ref) return true;
@@ -82,17 +20,12 @@ namespace DisabledReferenceIntegrityFix
 
 			if (a_ref->extraList.HasType<RE::ExtraEnableStateParent>()) return true;
 
-			if (const auto* lastFile = a_ref->GetFile(-1)) {
-				if (IsBlacklistedMaster(lastFile->fileName)) return true;
-				std::string lowerName(lastFile->fileName);
-				for (auto& c : lowerName)
-					c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-				if (EXCLUDED_MODS.contains(lowerName)) return true;
-			}
+			if (IsFormFromExcludedMod(a_ref)) return true;
 
 			if (EXCLUDED_FORMS.contains(a_ref->GetFormID())) return true;
 			if (const auto* base = a_ref->GetBaseObject()) {
 				if (EXCLUDED_FORMS.contains(base->GetFormID())) return true;
+				if (IsFormFromExcludedMod(base)) return true;
 			}
 
 			return false;
@@ -115,6 +48,10 @@ namespace DisabledReferenceIntegrityFix
 
 			if (!a_ref || !FIX_REFERENCES) return false;
 			if (!ShouldPatchCell(a_ref)) return false;
+			if (IsExcludedFast(a_ref)) {
+				g_stats.hook_init_excluded++;
+				return false;
+			}
 
 			const auto pos = a_ref->GetPosition();
 			auto* base = a_ref->GetBaseObject();
@@ -153,7 +90,6 @@ namespace DisabledReferenceIntegrityFix
 			}
 
 			if (INCLUDE_DELETED && a_ref->IsDeleted()) {
-				if (IsExcludedFast(a_ref)) return false;
 				if (!base || IsMarkerBase(base)) return false;
 				const float oldZ = pos.z;
 				a_ref->formFlags |= RE::TESObjectREFR::RecordFlags::kInitiallyDisabled;

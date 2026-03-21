@@ -34,9 +34,8 @@ namespace DisabledReferenceIntegrityFix
 		uint32_t hook_init_skipped_refs_fully_loaded = 0;
 		uint32_t hook_load3d_gated                   = 0;
 
-		uint32_t hook_init_cair_z_ok         = 0;
-		uint32_t hook_init_below_already_dis = 0;
-		uint32_t hook_init_excluded          = 0;
+		uint32_t hook_init_cair_z_ok = 0;
+		uint32_t hook_init_excluded  = 0;
 
 		uint32_t fallback_event_cells_fixed = 0;
 		uint32_t fallback_event_refs_fixed  = 0;
@@ -68,6 +67,8 @@ namespace DisabledReferenceIntegrityFix
 	extern std::unordered_set<RE::FormID>                 g_processed_cells;
 	extern std::unordered_map<RE::FormID, WorldspaceStats> g_worldspace_stats;
 	extern bool                                           g_plugin_enabled;
+
+	void LogRefFix(const char* tag, const RE::TESObjectREFR* ref, float oldZ, float newZ, const char* action);
 
 	uint32_t FixCellReferences(RE::TESObjectCELL* a_cell);
 

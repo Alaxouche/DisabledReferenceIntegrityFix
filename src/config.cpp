@@ -117,6 +117,21 @@ namespace DisabledReferenceIntegrityFix
 		std::string line;
 		line.reserve(INI_LINE_RESERVE);
 
+		auto ForEachListToken = [](std::string_view input, auto&& onToken) {
+			size_t start = 0;
+			for (size_t i = 0; i <= input.size(); ++i) {
+				const bool atEnd = i == input.size();
+				const char ch = atEnd ? '\0' : input[i];
+				if (atEnd || ch == ',' || ch == '-') {
+					const std::string_view token = TrimView(input.substr(start, i - start));
+					if (!token.empty()) {
+						onToken(token);
+					}
+					start = i + 1;
+				}
+			}
+		};
+
 		while (std::getline(in, line)) {
 			if (auto p = line.find(';'); p != std::string::npos) line.resize(p);
 			if (auto p = line.find('#'); p != std::string::npos) line.resize(p);
@@ -147,11 +162,20 @@ namespace DisabledReferenceIntegrityFix
 					cfg.logLevel = std::clamp(cfg.logLevel, 1, 5);
 				}
 				else if (key == "excludemod") {
-						cfg.excludedMods.insert(ToLower(val));
+					ForEachListToken(val, [&](std::string_view token) {
+						cfg.excludedMods.insert(ToLower(token));
+					});
 				}
 				else if (key == "excludeform") {
-						uint32_t id = static_cast<uint32_t>(std::stoul(std::string(val), nullptr, 0));
-					cfg.excludedForms.insert(id);
+					ForEachListToken(val, [&](std::string_view token) {
+						try {
+							const uint32_t id = static_cast<uint32_t>(std::stoul(std::string(token), nullptr, 0));
+							cfg.excludedForms.insert(id);
+						} catch (const std::exception& e) {
+							cfg.parseWarnings.push_back(
+								std::format("[CONFIG] Malformed excludeform token \"{}\" ({})", token, e.what()));
+						}
+					});
 				}
 			} catch (const std::exception& e) {
 				cfg.parseWarnings.push_back(
