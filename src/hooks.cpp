@@ -49,7 +49,7 @@ namespace DisabledReferenceIntegrityFix
 			if (!a_ref || !FIX_REFERENCES) return false;
 			if (!ShouldPatchCell(a_ref)) return false;
 			if (IsExcludedFast(a_ref)) {
-				g_stats.hook_init_excluded++;
+				g_hook_stats.init_excluded.fetch_add(1, std::memory_order_relaxed);
 				return false;
 			}
 
@@ -58,8 +58,7 @@ namespace DisabledReferenceIntegrityFix
 
 			const bool canApplyInitDisabledRule = a_ref->IsInitiallyDisabled() &&
 				!a_ref->IsPersistent() &&
-				!a_ref->HasQuestObject() &&
-				!a_ref->extraList.HasType<RE::ExtraEnableStateParent>();
+				!a_ref->HasQuestObject();
 
 			if (canApplyInitDisabledRule) {
 				if (!base || IsMarkerBase(base)) return false;
@@ -72,7 +71,7 @@ namespace DisabledReferenceIntegrityFix
 					}
 					LogRefFix("init", a_ref, pos.z, fixedPos.z, "init_disabled_rule_clamp");
 				} else {
-					g_stats.hook_init_cair_z_ok++;
+					g_hook_stats.init_cair_z_ok.fetch_add(1, std::memory_order_relaxed);
 				}
 				return false;
 			}
@@ -123,7 +122,7 @@ namespace DisabledReferenceIntegrityFix
 
 				bool touched = false;
 				if (PrepareReferenceForEarlyLoad(a_this, &touched)) {
-					g_stats.hook_load3d_gated++;
+					g_hook_stats.load3d_gated.fetch_add(1, std::memory_order_relaxed);
 					LogRefFix("load3d", a_this, a_this->GetPosition().z, a_this->GetPosition().z, "load3d_gate");
 					MaybeLogHookInstrumentation("live", 5000);
 					return nullptr;
@@ -155,7 +154,7 @@ namespace DisabledReferenceIntegrityFix
 					return;
 				}
 
-				g_stats.hook_init_seen++;
+				g_hook_stats.init_seen.fetch_add(1, std::memory_order_relaxed);
 
 				const bool has3D = a_this->Is3DLoaded();
 				auto*      cell  = a_this->GetParentCell();
@@ -170,20 +169,20 @@ namespace DisabledReferenceIntegrityFix
 				}
 
 				if (has3D) {
-					g_stats.hook_init_skipped_has3d++;
+					g_hook_stats.init_skipped_has3d.fetch_add(1, std::memory_order_relaxed);
 					return;
 				}
 				if (cellAttached) {
-					g_stats.hook_init_skipped_cell_attached++;
+					g_hook_stats.init_skipped_cell_attached.fetch_add(1, std::memory_order_relaxed);
 				}
 				if (refsFullyLoaded) {
-					g_stats.hook_init_skipped_refs_fully_loaded++;
+					g_hook_stats.init_skipped_refs_fully_loaded.fetch_add(1, std::memory_order_relaxed);
 				}
 
 				bool touched = false;
 				PrepareReferenceForEarlyLoad(a_this, &touched);
 				if (touched) {
-					g_stats.hook_init_fixed_pre_live++;
+					g_hook_stats.init_fixed_pre_live.fetch_add(1, std::memory_order_relaxed);
 				}
 
 				MaybeLogHookInstrumentation("live", 5000);

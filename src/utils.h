@@ -7,7 +7,8 @@ namespace DisabledReferenceIntegrityFix
 	inline const char* FormSourceFile(const RE::TESForm* a_form)
 	{
 		if (!a_form) return "<null>";
-		if (const auto* file = a_form->GetFile(0)) return file->fileName;
+		if (const auto* file = a_form->GetFile(-1)) return file->fileName;
+		if (const auto* file = a_form->GetFile(0))  return file->fileName;
 		return "<unknown>";
 	}
 
@@ -32,8 +33,7 @@ namespace DisabledReferenceIntegrityFix
 			lower == "dawnguard.esm" ||
 			lower == "hearthfires.esm" ||
 			lower == "dragonborn.esm" ||
-			lower == "dyndolod.esp" ||
-			lower == "legacyofthedragonborn.esm";
+			lower == "dyndolod.esp";
 	}
 
 	inline bool IsModExcludedByName(std::string_view a_fileName)

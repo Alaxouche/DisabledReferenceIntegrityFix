@@ -16,11 +16,6 @@ namespace DisabledReferenceIntegrityFix
 		auto* cell = a_event->cell;
 		if (!cell) return RE::BSEventNotifyControl::kContinue;
 
-		auto* player = RE::PlayerCharacter::GetSingleton();
-		g_playerHandle = player
-			? static_cast<RE::TESObjectREFR*>(player)->GetHandle()
-			: RE::ObjectRefHandle{};
-
 		g_processed_cells.erase(cell->GetFormID());
 
 		if (AUTO_FIX_ON_CELL_LOAD) {

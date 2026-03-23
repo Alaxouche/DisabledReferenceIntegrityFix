@@ -9,7 +9,7 @@ namespace DisabledReferenceIntegrityFix
 {
 
 	Stats                                           g_stats{};
-	RE::ObjectRefHandle                             g_playerHandle{};
+	HookStats                                       g_hook_stats{};
 	std::unordered_set<RE::FormID>                  g_processed_cells{};
 	std::unordered_map<RE::FormID, WorldspaceStats> g_worldspace_stats{};
 	bool                                            g_plugin_enabled = true;
@@ -68,7 +68,12 @@ namespace DisabledReferenceIntegrityFix
 
 		void AttachPlayerEnableParentOpposite(RE::TESObjectREFR* ref)
 		{
-			if (!ref || !g_playerHandle) return;
+			if (!ref) return;
+
+			// Always resolve the player fresh — avoids stale cached handles
+			// between game sessions or after new-game transitions.
+			auto* player = RE::PlayerCharacter::GetSingleton();
+			if (!player) return;
 
 			if (ref->extraList.HasType<RE::ExtraEnableStateParent>()) {
 				if (VERBOSE_LOGGING && ENABLE_LOGGING)
@@ -83,7 +88,7 @@ namespace DisabledReferenceIntegrityFix
 			}
 
 			parentExtra->flags  = 1;
-			parentExtra->parent = g_playerHandle;
+			parentExtra->parent = static_cast<RE::TESObjectREFR*>(player)->GetHandle();
 
 			if (ref->extraList.Add(parentExtra) == nullptr) {
 				if (ENABLE_LOGGING) logger::warn("[enable-parent] 0x{:08X} Add() failed", ref->GetFormID());
@@ -95,6 +100,7 @@ namespace DisabledReferenceIntegrityFix
 		{
 			if (!ref || !ref->IsDeleted()) return RefFixKind::None;
 			if (IsExcludedByConfig(ref)) return RefFixKind::None;
+			if (ref->extraList.HasType<RE::ExtraEnableStateParent>()) return RefFixKind::None;
 
 			auto* base = ref->GetBaseObject();
 			if (!base) {
@@ -127,7 +133,9 @@ namespace DisabledReferenceIntegrityFix
 		RefFixKind FixReferenceZ(RE::TESObjectREFR* ref)
 		{
 			if (!ref || !FIX_REFERENCES) return RefFixKind::None;
+			if (ref->IsDeleted()) return RefFixKind::None;
 			if (IsExcludedByConfig(ref)) return RefFixKind::None;
+			if (ref->extraList.HasType<RE::ExtraEnableStateParent>()) return RefFixKind::None;
 
 			const auto currentPos = GetRefLocation(ref);
 			const float z = currentPos.z;
@@ -135,18 +143,22 @@ namespace DisabledReferenceIntegrityFix
 
 			const bool canApplyInitDisabledRule = ref->IsInitiallyDisabled() &&
 				!ref->IsPersistent() &&
-				!ref->HasQuestObject() &&
-				!ref->extraList.HasType<RE::ExtraEnableStateParent>();
+				!ref->HasQuestObject();
 
 			if (canApplyInitDisabledRule) {
-				if (base && !IsMarkerBase(base) && std::fabs(z - Z_FLOOR) > Z_EPSILON) {
-					RE::NiPoint3 newPos = currentPos;
-					newPos.z = Z_FLOOR;
-					SetRefLocation(ref, newPos);
-					LogRefFix("INIT-DISBL", ref, z, Z_FLOOR, "R2(user-rule)");
-					g_stats.refs_initially_disabled_fixed++;
-					g_stats.total_refs_fixed++;
-					return RefFixKind::InitiallyDisabled;
+				if (base && !IsMarkerBase(base)) {
+					if (std::fabs(z - Z_FLOOR) > Z_EPSILON) {
+						RE::NiPoint3 newPos = currentPos;
+						newPos.z = Z_FLOOR;
+						SetRefLocation(ref, newPos);
+						LogRefFix("INIT-DISBL", ref, z, Z_FLOOR, "R2(user-rule)+XESP");
+						AttachPlayerEnableParentOpposite(ref);
+						g_stats.refs_initially_disabled_fixed++;
+						g_stats.total_refs_fixed++;
+						return RefFixKind::InitiallyDisabled;
+					}
+					// Z already at floor: attach missing XESP enable-state parent
+					AttachPlayerEnableParentOpposite(ref);
 				}
 				return RefFixKind::None;
 			}
@@ -266,12 +278,12 @@ namespace DisabledReferenceIntegrityFix
 			}
 		}
 
+		if (isInterior  && !PATCH_INTERIOR) return 0;
+		if (!isInterior && !PATCH_EXTERIOR)  return 0;
+
 		if (!g_worldspace_stats.contains(worldspaceID))
 			g_worldspace_stats[worldspaceID].name = worldspaceName;
 		auto& wsStats = g_worldspace_stats[worldspaceID];
-
-		if (isInterior  && !PATCH_INTERIOR) return 0;
-		if (!isInterior && !PATCH_EXTERIOR)  return 0;
 
 		wsStats.cells++;
 
@@ -364,41 +376,22 @@ namespace DisabledReferenceIntegrityFix
 
 	void FixAllLoadedCells()
 	{
-		const auto hook_init_seen                      = g_stats.hook_init_seen;
-		const auto hook_init_fixed_pre_live            = g_stats.hook_init_fixed_pre_live;
-		const auto hook_init_skipped_has3d             = g_stats.hook_init_skipped_has3d;
-		const auto hook_init_skipped_cell_attached     = g_stats.hook_init_skipped_cell_attached;
-		const auto hook_init_skipped_refs_fully_loaded = g_stats.hook_init_skipped_refs_fully_loaded;
-		const auto hook_load3d_gated                   = g_stats.hook_load3d_gated;
-		const auto fallback_event_cells_fixed          = g_stats.fallback_event_cells_fixed;
-		const auto fallback_event_refs_fixed           = g_stats.fallback_event_refs_fixed;
-		const auto fallback_event_navmesh_cells_fixed  = g_stats.fallback_event_navmesh_cells_fixed;
-		const auto fallback_event_navmesh_vertices_fixed = g_stats.fallback_event_navmesh_vertices_fixed;
-		const auto hook_init_cair_z_ok                 = g_stats.hook_init_cair_z_ok;
-		const auto hook_init_excluded                  = g_stats.hook_init_excluded;
+		// Preserve fallback event stats accumulated since the last scan.
+		// g_hook_stats is intentionally NOT reset — it accumulates across the session.
+		const auto saved_fallback_cells    = g_stats.fallback_event_cells_fixed;
+		const auto saved_fallback_refs     = g_stats.fallback_event_refs_fixed;
+		const auto saved_fallback_nm_cells = g_stats.fallback_event_navmesh_cells_fixed;
+		const auto saved_fallback_nm_verts = g_stats.fallback_event_navmesh_vertices_fixed;
 
 		g_processed_cells.clear();
 		g_processed_cells.reserve(INITIAL_CELL_CAPACITY);
 		g_worldspace_stats.clear();
 		g_worldspace_stats.reserve(INITIAL_WORLDSPACE_CAPACITY);
 		g_stats = Stats{};
-		g_stats.hook_init_seen                      = hook_init_seen;
-		g_stats.hook_init_fixed_pre_live            = hook_init_fixed_pre_live;
-		g_stats.hook_init_skipped_has3d             = hook_init_skipped_has3d;
-		g_stats.hook_init_skipped_cell_attached     = hook_init_skipped_cell_attached;
-		g_stats.hook_init_skipped_refs_fully_loaded = hook_init_skipped_refs_fully_loaded;
-		g_stats.hook_load3d_gated                   = hook_load3d_gated;
-		g_stats.fallback_event_cells_fixed          = fallback_event_cells_fixed;
-		g_stats.fallback_event_refs_fixed           = fallback_event_refs_fixed;
-		g_stats.fallback_event_navmesh_cells_fixed  = fallback_event_navmesh_cells_fixed;
-		g_stats.fallback_event_navmesh_vertices_fixed = fallback_event_navmesh_vertices_fixed;
-		g_stats.hook_init_cair_z_ok                 = hook_init_cair_z_ok;
-		g_stats.hook_init_excluded                  = hook_init_excluded;
-
-		auto* player = RE::PlayerCharacter::GetSingleton();
-		g_playerHandle = player
-			? static_cast<RE::TESObjectREFR*>(player)->GetHandle()
-			: RE::ObjectRefHandle{};
+		g_stats.fallback_event_cells_fixed            = saved_fallback_cells;
+		g_stats.fallback_event_refs_fixed             = saved_fallback_refs;
+		g_stats.fallback_event_navmesh_cells_fixed    = saved_fallback_nm_cells;
+		g_stats.fallback_event_navmesh_vertices_fixed = saved_fallback_nm_verts;
 
 		auto* tes = RE::TES::GetSingleton();
 		if (!tes) {
@@ -436,14 +429,14 @@ namespace DisabledReferenceIntegrityFix
 				logger::info("[Disabled Reference Integrity Fix] Worldspace is clean, no objects below -30K.");
 
 			logger::info("[hooks] initSeen:{} initFixedPreLive:{} initSkip(3d:{} attached:{} refsLoaded:{}) load3dGated:{} | diag(cairOk:{} excl:{}) | fallbackCells:{} fallbackRefFixes:{} navmeshEventCells:{} navmeshEventVerts:{}",
-				g_stats.hook_init_seen,
-				g_stats.hook_init_fixed_pre_live,
-				g_stats.hook_init_skipped_has3d,
-				g_stats.hook_init_skipped_cell_attached,
-				g_stats.hook_init_skipped_refs_fully_loaded,
-				g_stats.hook_load3d_gated,
-				g_stats.hook_init_cair_z_ok,
-				g_stats.hook_init_excluded,
+				g_hook_stats.init_seen.load(std::memory_order_relaxed),
+				g_hook_stats.init_fixed_pre_live.load(std::memory_order_relaxed),
+				g_hook_stats.init_skipped_has3d.load(std::memory_order_relaxed),
+				g_hook_stats.init_skipped_cell_attached.load(std::memory_order_relaxed),
+				g_hook_stats.init_skipped_refs_fully_loaded.load(std::memory_order_relaxed),
+				g_hook_stats.load3d_gated.load(std::memory_order_relaxed),
+				g_hook_stats.init_cair_z_ok.load(std::memory_order_relaxed),
+				g_hook_stats.init_excluded.load(std::memory_order_relaxed),
 				g_stats.fallback_event_cells_fixed,
 				g_stats.fallback_event_refs_fixed,
 				g_stats.fallback_event_navmesh_cells_fixed,
@@ -456,14 +449,14 @@ namespace DisabledReferenceIntegrityFix
 		if (!ENABLE_LOGGING) return;
 		logger::info("[hooks:{}] initSeen:{} initFixedPreLive:{} initSkip(3d:{} attached:{} refsLoaded:{}) load3dGated:{} | diag(cairOk:{} excl:{}) | fallbackCells:{} fallbackRefFixes:{} navmeshEventCells:{} navmeshEventVerts:{}",
 			a_reason ? a_reason : "snapshot",
-			g_stats.hook_init_seen,
-			g_stats.hook_init_fixed_pre_live,
-			g_stats.hook_init_skipped_has3d,
-			g_stats.hook_init_skipped_cell_attached,
-			g_stats.hook_init_skipped_refs_fully_loaded,
-			g_stats.hook_load3d_gated,
-			g_stats.hook_init_cair_z_ok,
-			g_stats.hook_init_excluded,
+			g_hook_stats.init_seen.load(std::memory_order_relaxed),
+			g_hook_stats.init_fixed_pre_live.load(std::memory_order_relaxed),
+			g_hook_stats.init_skipped_has3d.load(std::memory_order_relaxed),
+			g_hook_stats.init_skipped_cell_attached.load(std::memory_order_relaxed),
+			g_hook_stats.init_skipped_refs_fully_loaded.load(std::memory_order_relaxed),
+			g_hook_stats.load3d_gated.load(std::memory_order_relaxed),
+			g_hook_stats.init_cair_z_ok.load(std::memory_order_relaxed),
+			g_hook_stats.init_excluded.load(std::memory_order_relaxed),
 			g_stats.fallback_event_cells_fixed,
 			g_stats.fallback_event_refs_fixed,
 			g_stats.fallback_event_navmesh_cells_fixed,
