@@ -21,28 +21,12 @@ namespace DisabledReferenceIntegrityFix
 		return false;
 	}
 
-	inline bool IsBlacklistedMaster(std::string_view a_fileName)
-	{
-		if (a_fileName.empty()) return false;
-		std::string lower(a_fileName);
-		for (auto& c : lower)
-			c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-
-		return lower == "skyrim.esm" ||
-			lower == "update.esm" ||
-			lower == "dawnguard.esm" ||
-			lower == "hearthfires.esm" ||
-			lower == "dragonborn.esm" ||
-			lower == "dyndolod.esp";
-	}
-
 	inline bool IsModExcludedByName(std::string_view a_fileName)
 	{
 		if (a_fileName.empty()) return false;
 		std::string lowerName(a_fileName);
 		for (auto& c : lowerName)
 			c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-		if (IsBlacklistedMaster(lowerName)) return true;
 		return Config::EXCLUDED_MODS.contains(lowerName);
 	}
 
@@ -55,6 +39,23 @@ namespace DisabledReferenceIntegrityFix
 		if (const auto* file0 = a_form->GetFile(0)) {
 			if (IsModExcludedByName(file0->fileName)) return true;
 		}
+		return false;
+	}
+
+	inline bool IsHardcodedExcludedRef(const RE::TESObjectREFR* a_ref)
+	{
+		if (!a_ref) return true;
+
+		// Quest path guard: Double-Distilled Skooma reference in Windhelm theft quest.
+		// This reference family may not carry reliable quest flags at runtime.
+		constexpr RE::FormID kQuestRef_DoubleDistilledSkooma  = 0x0003F4BE;
+		constexpr RE::FormID kQuestBase_DoubleDistilledSkooma = 0x0003F4BD;
+
+		if (a_ref->GetFormID() == kQuestRef_DoubleDistilledSkooma) return true;
+		if (const auto* base = a_ref->GetBaseObject()) {
+			if (base->GetFormID() == kQuestBase_DoubleDistilledSkooma) return true;
+		}
+
 		return false;
 	}
 }

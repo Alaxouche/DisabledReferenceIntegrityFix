@@ -117,16 +117,28 @@ namespace DisabledReferenceIntegrityFix
 		std::string line;
 		line.reserve(INI_LINE_RESERVE);
 
-		auto ForEachListToken = [](std::string_view input, auto&& onToken) {
+		// Splits on commas only — dash is NOT a separator because mod filenames can contain hyphens.
+		auto ForEachCommaSeparated = [](std::string_view input, auto&& onToken) {
+			size_t start = 0;
+			for (size_t i = 0; i <= input.size(); ++i) {
+				const bool atEnd = i == input.size();
+				if (atEnd || input[i] == ',') {
+					const std::string_view token = TrimView(input.substr(start, i - start));
+					if (!token.empty()) onToken(token);
+					start = i + 1;
+				}
+			}
+		};
+
+		// Splits on commas and dashes — safe for hex FormIDs which never contain hyphens.
+		auto ForEachFormToken = [](std::string_view input, auto&& onToken) {
 			size_t start = 0;
 			for (size_t i = 0; i <= input.size(); ++i) {
 				const bool atEnd = i == input.size();
 				const char ch = atEnd ? '\0' : input[i];
 				if (atEnd || ch == ',' || ch == '-') {
 					const std::string_view token = TrimView(input.substr(start, i - start));
-					if (!token.empty()) {
-						onToken(token);
-					}
+					if (!token.empty()) onToken(token);
 					start = i + 1;
 				}
 			}
@@ -162,12 +174,12 @@ namespace DisabledReferenceIntegrityFix
 					cfg.logLevel = std::clamp(cfg.logLevel, 1, 5);
 				}
 				else if (key == "excludemod") {
-					ForEachListToken(val, [&](std::string_view token) {
+					ForEachCommaSeparated(val, [&](std::string_view token) {
 						cfg.excludedMods.insert(ToLower(token));
 					});
 				}
 				else if (key == "excludeform") {
-					ForEachListToken(val, [&](std::string_view token) {
+					ForEachFormToken(val, [&](std::string_view token) {
 						try {
 							const uint32_t id = static_cast<uint32_t>(std::stoul(std::string(token), nullptr, 0));
 							cfg.excludedForms.insert(id);

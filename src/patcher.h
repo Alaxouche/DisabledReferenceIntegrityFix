@@ -44,18 +44,6 @@ namespace DisabledReferenceIntegrityFix
 		std::atomic<uint32_t> load3d_gated{0};
 		std::atomic<uint32_t> init_cair_z_ok{0};
 		std::atomic<uint32_t> init_excluded{0};
-
-		void Reset() noexcept
-		{
-			init_seen.store(0, std::memory_order_relaxed);
-			init_fixed_pre_live.store(0, std::memory_order_relaxed);
-			init_skipped_has3d.store(0, std::memory_order_relaxed);
-			init_skipped_cell_attached.store(0, std::memory_order_relaxed);
-			init_skipped_refs_fully_loaded.store(0, std::memory_order_relaxed);
-			load3d_gated.store(0, std::memory_order_relaxed);
-			init_cair_z_ok.store(0, std::memory_order_relaxed);
-			init_excluded.store(0, std::memory_order_relaxed);
-		}
 	};
 
 	struct WorldspaceStats
@@ -82,6 +70,8 @@ namespace DisabledReferenceIntegrityFix
 	extern std::unordered_set<RE::FormID>                  g_processed_cells;
 	extern std::unordered_map<RE::FormID, WorldspaceStats> g_worldspace_stats;
 	extern bool                                            g_plugin_enabled;
+
+	void AttachPlayerEnableParentOpposite(RE::TESObjectREFR* ref);
 
 	void LogRefFix(const char* tag, const RE::TESObjectREFR* ref, float oldZ, float newZ, const char* action);
 

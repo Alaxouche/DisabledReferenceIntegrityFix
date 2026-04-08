@@ -21,6 +21,8 @@ namespace DisabledReferenceIntegrityFix
 		bool IsExcludedByConfig(const RE::TESObjectREFR* ref)
 		{
 			if (!ref) return true;
+			if (IsHardcodedExcludedRef(ref)) return true;
+			if (ref->GetFormType() == RE::FormType::ActorCharacter) return true;
 			if (EXCLUDED_FORMS.contains(ref->GetFormID())) return true;
 			if (IsFormFromExcludedMod(ref)) return true;
 			if (const auto* base = ref->GetBaseObject()) {
@@ -28,11 +30,6 @@ namespace DisabledReferenceIntegrityFix
 				if (IsFormFromExcludedMod(base)) return true;
 			}
 			return false;
-		}
-
-		bool IsZBelowMin(float z)
-		{
-			return z < Z_FLOOR;
 		}
 
 		const char* FormTypeTag(const RE::TESForm* form)
@@ -63,36 +60,6 @@ namespace DisabledReferenceIntegrityFix
 			ref->data.location = pos;
 			if (ref->Get3D()) {
 				ref->Update3DPosition(true);
-			}
-		}
-
-		void AttachPlayerEnableParentOpposite(RE::TESObjectREFR* ref)
-		{
-			if (!ref) return;
-
-			// Always resolve the player fresh — avoids stale cached handles
-			// between game sessions or after new-game transitions.
-			auto* player = RE::PlayerCharacter::GetSingleton();
-			if (!player) return;
-
-			if (ref->extraList.HasType<RE::ExtraEnableStateParent>()) {
-				if (VERBOSE_LOGGING && ENABLE_LOGGING)
-					logger::trace("[enable-parent] 0x{:08X} already has parent, skipping", ref->GetFormID());
-				return;
-			}
-
-			auto* parentExtra = RE::BSExtraData::Create<RE::ExtraEnableStateParent>();
-			if (!parentExtra) {
-				if (ENABLE_LOGGING) logger::warn("[enable-parent] 0x{:08X} alloc failed", ref->GetFormID());
-				return;
-			}
-
-			parentExtra->flags  = 1;
-			parentExtra->parent = static_cast<RE::TESObjectREFR*>(player)->GetHandle();
-
-			if (ref->extraList.Add(parentExtra) == nullptr) {
-				if (ENABLE_LOGGING) logger::warn("[enable-parent] 0x{:08X} Add() failed", ref->GetFormID());
-				RE::free(parentExtra);
 			}
 		}
 
@@ -164,7 +131,7 @@ namespace DisabledReferenceIntegrityFix
 			}
 
 			if (z <= Z_FLOOR && !ref->IsInitiallyDisabled()) {
-				if (!base || IsMarkerBase(base) || ref->IsDeleted()) return RefFixKind::None;
+				if (!base || IsMarkerBase(base)) return RefFixKind::None;
 				ref->formFlags |= RE::TESObjectREFR::RecordFlags::kInitiallyDisabled;
 				if (!ref->IsDisabled()) ref->Disable();
 				AttachPlayerEnableParentOpposite(ref);
@@ -195,7 +162,7 @@ namespace DisabledReferenceIntegrityFix
 					auto& verts = nm->vertices;
 					for (uint32_t j = 0; j < verts.size(); ++j) {
 						auto& v = verts[j];
-						if (IsZBelowMin(v.location.z)) {
+						if (v.location.z < Z_FLOOR) {
 							if (VERBOSE_LOGGING && ENABLE_LOGGING)
 								logger::trace("[navmesh] vtx {} Z:{:.0f}->{:.0f}", j, v.location.z, Z_FLOOR);
 							v.location.z = Z_FLOOR;
@@ -218,6 +185,34 @@ namespace DisabledReferenceIntegrityFix
 			return fixed;
 		}
 
+	}
+
+	void AttachPlayerEnableParentOpposite(RE::TESObjectREFR* ref)
+	{
+		if (!ref) return;
+
+		auto* player = RE::PlayerCharacter::GetSingleton();
+		if (!player) return;
+
+		if (ref->extraList.HasType<RE::ExtraEnableStateParent>()) {
+			if (VERBOSE_LOGGING && ENABLE_LOGGING)
+				logger::trace("[enable-parent] 0x{:08X} already has parent, skipping", ref->GetFormID());
+			return;
+		}
+
+		auto* parentExtra = RE::BSExtraData::Create<RE::ExtraEnableStateParent>();
+		if (!parentExtra) {
+			if (ENABLE_LOGGING) logger::warn("[enable-parent] 0x{:08X} alloc failed", ref->GetFormID());
+			return;
+		}
+
+		parentExtra->flags  = 1;
+		parentExtra->parent = static_cast<RE::TESObjectREFR*>(player)->GetHandle();
+
+		if (ref->extraList.Add(parentExtra) == nullptr) {
+			if (ENABLE_LOGGING) logger::warn("[enable-parent] 0x{:08X} Add() failed", ref->GetFormID());
+			RE::free(parentExtra);
+		}
 	}
 
 	void LogRefFix(const char* tag, const RE::TESObjectREFR* ref, float oldZ, float newZ, const char* action)
@@ -294,6 +289,7 @@ namespace DisabledReferenceIntegrityFix
 		}
 
 		uint32_t fixedCount = 0;
+		bool batchLimitHit = false;
 
 		cell->ForEachReference([&](RE::TESObjectREFR* ref) -> RE::BSContainer::ForEachResult {
 			if (!ref) return RE::BSContainer::ForEachResult::kContinue;
@@ -329,7 +325,8 @@ namespace DisabledReferenceIntegrityFix
 
 			if (MAX_REFS_PER_BATCH > 0 && fixedCount >= MAX_REFS_PER_BATCH) {
 				if (ENABLE_LOGGING)
-					logger::warn("[cell] Batch limit ({}) reached", MAX_REFS_PER_BATCH);
+					logger::warn("[cell] Batch limit ({}) reached, cell will be retried next scan", MAX_REFS_PER_BATCH);
+				batchLimitHit = true;
 				return RE::BSContainer::ForEachResult::kStop;
 			}
 
@@ -347,8 +344,10 @@ namespace DisabledReferenceIntegrityFix
 				fixedCount + navmeshFixes);
 		}
 
-		g_processed_cells.insert(cellFormID);
-		g_stats.cells_processed++;
+		if (!batchLimitHit) {
+			g_processed_cells.insert(cellFormID);
+			g_stats.cells_processed++;
+		}
 
 		return fixedCount + navmeshFixes;
 	}
@@ -376,8 +375,6 @@ namespace DisabledReferenceIntegrityFix
 
 	void FixAllLoadedCells()
 	{
-		// Preserve fallback event stats accumulated since the last scan.
-		// g_hook_stats is intentionally NOT reset — it accumulates across the session.
 		const auto saved_fallback_cells    = g_stats.fallback_event_cells_fixed;
 		const auto saved_fallback_refs     = g_stats.fallback_event_refs_fixed;
 		const auto saved_fallback_nm_cells = g_stats.fallback_event_navmesh_cells_fixed;

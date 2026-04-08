@@ -13,7 +13,9 @@ namespace DisabledReferenceIntegrityFix
 		bool IsExcludedFast(RE::TESObjectREFR* a_ref)
 		{
 			if (!a_ref) return true;
+			if (IsHardcodedExcludedRef(a_ref)) return true;
 
+			if (a_ref->GetFormType() == RE::FormType::ActorCharacter) return true;
 			if (a_ref->IsPersistent()) return true;
 			if (a_ref->HasQuestObject()) return true;
 			if (a_ref->extraList.HasType<RE::ExtraLinkedRef>()) return true;
@@ -36,8 +38,7 @@ namespace DisabledReferenceIntegrityFix
 			if (!a_ref) return false;
 			auto* cell = a_ref->GetParentCell();
 			if (!cell) return true;
-			if (cell->IsInteriorCell()) return PATCH_INTERIOR;
-			return PATCH_EXTERIOR;
+			return cell->IsInteriorCell() ? PATCH_INTERIOR : PATCH_EXTERIOR;
 		}
 
 		bool PrepareReferenceForEarlyLoad(RE::TESObjectREFR* a_ref, bool* a_touched = nullptr)
@@ -48,6 +49,14 @@ namespace DisabledReferenceIntegrityFix
 
 			if (!a_ref || !FIX_REFERENCES) return false;
 			if (!ShouldPatchCell(a_ref)) return false;
+
+			if (auto* cell = a_ref->GetParentCell()) {
+				if (cell->IsAttached()) return false;
+				if (const auto* loaded = cell->GetRuntimeData().loadedData) {
+					if (loaded->refsFullyLoaded) return false;
+				}
+			}
+
 			if (IsExcludedFast(a_ref)) {
 				g_hook_stats.init_excluded.fetch_add(1, std::memory_order_relaxed);
 				return false;
@@ -73,6 +82,7 @@ namespace DisabledReferenceIntegrityFix
 				} else {
 					g_hook_stats.init_cair_z_ok.fetch_add(1, std::memory_order_relaxed);
 				}
+				AttachPlayerEnableParentOpposite(a_ref);
 				return false;
 			}
 
@@ -120,8 +130,7 @@ namespace DisabledReferenceIntegrityFix
 					return _Load3D(a_this, a_backgroundLoading);
 				}
 
-				bool touched = false;
-				if (PrepareReferenceForEarlyLoad(a_this, &touched)) {
+				if (PrepareReferenceForEarlyLoad(a_this)) {
 					g_hook_stats.load3d_gated.fetch_add(1, std::memory_order_relaxed);
 					LogRefFix("load3d", a_this, a_this->GetPosition().z, a_this->GetPosition().z, "load3d_gate");
 					MaybeLogHookInstrumentation("live", 5000);
@@ -174,9 +183,11 @@ namespace DisabledReferenceIntegrityFix
 				}
 				if (cellAttached) {
 					g_hook_stats.init_skipped_cell_attached.fetch_add(1, std::memory_order_relaxed);
+					return;
 				}
 				if (refsFullyLoaded) {
 					g_hook_stats.init_skipped_refs_fully_loaded.fetch_add(1, std::memory_order_relaxed);
+					return;
 				}
 
 				bool touched = false;
