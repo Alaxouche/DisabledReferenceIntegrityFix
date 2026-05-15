@@ -117,7 +117,6 @@ namespace DisabledReferenceIntegrityFix
 		std::string line;
 		line.reserve(INI_LINE_RESERVE);
 
-		// Splits on commas only — dash is NOT a separator because mod filenames can contain hyphens.
 		auto ForEachCommaSeparated = [](std::string_view input, auto&& onToken) {
 			size_t start = 0;
 			for (size_t i = 0; i <= input.size(); ++i) {
@@ -130,7 +129,6 @@ namespace DisabledReferenceIntegrityFix
 			}
 		};
 
-		// Splits on commas and dashes — safe for hex FormIDs which never contain hyphens.
 		auto ForEachFormToken = [](std::string_view input, auto&& onToken) {
 			size_t start = 0;
 			for (size_t i = 0; i <= input.size(); ++i) {

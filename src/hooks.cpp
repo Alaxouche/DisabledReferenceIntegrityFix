@@ -67,7 +67,8 @@ namespace DisabledReferenceIntegrityFix
 
 			const bool canApplyInitDisabledRule = a_ref->IsInitiallyDisabled() &&
 				!a_ref->IsPersistent() &&
-				!a_ref->HasQuestObject();
+				!a_ref->HasQuestObject() &&
+				!a_ref->extraList.HasType<RE::ExtraEnableStateParent>();
 
 			if (canApplyInitDisabledRule) {
 				if (!base || IsMarkerBase(base)) return false;
@@ -82,7 +83,6 @@ namespace DisabledReferenceIntegrityFix
 				} else {
 					g_hook_stats.init_cair_z_ok.fetch_add(1, std::memory_order_relaxed);
 				}
-				AttachPlayerEnableParentOpposite(a_ref);
 				return false;
 			}
 
@@ -145,6 +145,36 @@ namespace DisabledReferenceIntegrityFix
 			static inline REL::Relocation<decltype(Thunk)> _Load3D;
 		};
 
+		class TESObjectREFR_SaveGameHook
+		{
+		public:
+			static void Install()
+			{
+				REL::Relocation<std::uintptr_t> vtbl{ RE::VTABLE_TESObjectREFR[0] };
+				_SaveGame = vtbl.write_vfunc(0x0E, Thunk);
+			}
+
+		private:
+			static void Thunk(RE::TESObjectREFR* a_this, RE::BGSSaveFormBuffer* a_buf)
+			{
+				if (!a_this) {
+					_SaveGame(a_this, a_buf);
+					return;
+				}
+
+				auto* xesp = a_this->extraList.GetByType<RE::ExtraEnableStateParent>();
+				if (xesp) {
+					a_this->extraList.Remove(xesp);
+					_SaveGame(a_this, a_buf);
+					a_this->extraList.Add(xesp);
+				} else {
+					_SaveGame(a_this, a_buf);
+				}
+			}
+
+			static inline REL::Relocation<decltype(Thunk)> _SaveGame;
+		};
+
 		class TESObjectREFR_InitItemImplHook
 		{
 		public:
@@ -205,6 +235,16 @@ namespace DisabledReferenceIntegrityFix
 
 	void InstallRuntimeHooks()
 	{
+		try {
+			TESObjectREFR_SaveGameHook::Install();
+			if (ENABLE_LOGGING)
+				logger::info("[Disabled Reference Integrity Fix] SaveGame hook installed (XESP save protection)");
+		} catch (const std::exception& e) {
+			logger::error("[Disabled Reference Integrity Fix] Failed to install SaveGame hook: {}", e.what());
+		} catch (...) {
+			logger::error("[Disabled Reference Integrity Fix] Failed to install SaveGame hook: unknown exception");
+		}
+
 		if (!EARLY_FIX_ON_LOAD3D) {
 			if (ENABLE_LOGGING)
 				logger::info("[Disabled Reference Integrity Fix] Early Load3D hook disabled by config");

@@ -71,8 +71,6 @@ namespace DisabledReferenceIntegrityFix
 	extern std::unordered_map<RE::FormID, WorldspaceStats> g_worldspace_stats;
 	extern bool                                            g_plugin_enabled;
 
-	void AttachPlayerEnableParentOpposite(RE::TESObjectREFR* ref);
-
 	void LogRefFix(const char* tag, const RE::TESObjectREFR* ref, float oldZ, float newZ, const char* action);
 
 	uint32_t FixCellReferences(RE::TESObjectCELL* a_cell);

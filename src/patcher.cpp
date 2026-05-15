@@ -63,6 +63,34 @@ namespace DisabledReferenceIntegrityFix
 			}
 		}
 
+		void AttachPlayerEnableParentOpposite(RE::TESObjectREFR* ref)
+		{
+			if (!ref) return;
+
+			auto* player = RE::PlayerCharacter::GetSingleton();
+			if (!player) return;
+
+			if (ref->extraList.HasType<RE::ExtraEnableStateParent>()) {
+				if (VERBOSE_LOGGING && ENABLE_LOGGING)
+					logger::trace("[enable-parent] 0x{:08X} already has parent, skipping", ref->GetFormID());
+				return;
+			}
+
+			auto* parentExtra = RE::BSExtraData::Create<RE::ExtraEnableStateParent>();
+			if (!parentExtra) {
+				if (ENABLE_LOGGING) logger::warn("[enable-parent] 0x{:08X} alloc failed", ref->GetFormID());
+				return;
+			}
+
+			parentExtra->flags  = 1;
+			parentExtra->parent = static_cast<RE::TESObjectREFR*>(player)->GetHandle();
+
+			if (ref->extraList.Add(parentExtra) == nullptr) {
+				if (ENABLE_LOGGING) logger::warn("[enable-parent] 0x{:08X} Add() failed", ref->GetFormID());
+				RE::free(parentExtra);
+			}
+		}
+
 		RefFixKind FixDeletedReference(RE::TESObjectREFR* ref)
 		{
 			if (!ref || !ref->IsDeleted()) return RefFixKind::None;
@@ -113,19 +141,14 @@ namespace DisabledReferenceIntegrityFix
 				!ref->HasQuestObject();
 
 			if (canApplyInitDisabledRule) {
-				if (base && !IsMarkerBase(base)) {
-					if (std::fabs(z - Z_FLOOR) > Z_EPSILON) {
-						RE::NiPoint3 newPos = currentPos;
-						newPos.z = Z_FLOOR;
-						SetRefLocation(ref, newPos);
-						LogRefFix("INIT-DISBL", ref, z, Z_FLOOR, "R2(user-rule)+XESP");
-						AttachPlayerEnableParentOpposite(ref);
-						g_stats.refs_initially_disabled_fixed++;
-						g_stats.total_refs_fixed++;
-						return RefFixKind::InitiallyDisabled;
-					}
-					// Z already at floor: attach missing XESP enable-state parent
-					AttachPlayerEnableParentOpposite(ref);
+				if (base && !IsMarkerBase(base) && std::fabs(z - Z_FLOOR) > Z_EPSILON) {
+					RE::NiPoint3 newPos = currentPos;
+					newPos.z = Z_FLOOR;
+					SetRefLocation(ref, newPos);
+					LogRefFix("INIT-DISBL", ref, z, Z_FLOOR, "R2(user-rule)");
+					g_stats.refs_initially_disabled_fixed++;
+					g_stats.total_refs_fixed++;
+					return RefFixKind::InitiallyDisabled;
 				}
 				return RefFixKind::None;
 			}
@@ -185,34 +208,6 @@ namespace DisabledReferenceIntegrityFix
 			return fixed;
 		}
 
-	}
-
-	void AttachPlayerEnableParentOpposite(RE::TESObjectREFR* ref)
-	{
-		if (!ref) return;
-
-		auto* player = RE::PlayerCharacter::GetSingleton();
-		if (!player) return;
-
-		if (ref->extraList.HasType<RE::ExtraEnableStateParent>()) {
-			if (VERBOSE_LOGGING && ENABLE_LOGGING)
-				logger::trace("[enable-parent] 0x{:08X} already has parent, skipping", ref->GetFormID());
-			return;
-		}
-
-		auto* parentExtra = RE::BSExtraData::Create<RE::ExtraEnableStateParent>();
-		if (!parentExtra) {
-			if (ENABLE_LOGGING) logger::warn("[enable-parent] 0x{:08X} alloc failed", ref->GetFormID());
-			return;
-		}
-
-		parentExtra->flags  = 1;
-		parentExtra->parent = static_cast<RE::TESObjectREFR*>(player)->GetHandle();
-
-		if (ref->extraList.Add(parentExtra) == nullptr) {
-			if (ENABLE_LOGGING) logger::warn("[enable-parent] 0x{:08X} Add() failed", ref->GetFormID());
-			RE::free(parentExtra);
-		}
 	}
 
 	void LogRefFix(const char* tag, const RE::TESObjectREFR* ref, float oldZ, float newZ, const char* action)

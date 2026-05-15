@@ -46,8 +46,7 @@ namespace DisabledReferenceIntegrityFix
 	{
 		if (!a_ref) return true;
 
-		// Quest path guard: Double-Distilled Skooma reference in Windhelm theft quest.
-		// This reference family may not carry reliable quest flags at runtime.
+		// Quest path guard
 		constexpr RE::FormID kQuestRef_DoubleDistilledSkooma  = 0x0003F4BE;
 		constexpr RE::FormID kQuestBase_DoubleDistilledSkooma = 0x0003F4BD;
 
