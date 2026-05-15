@@ -20,3 +20,4 @@ xmake-requires.lock
 .venv/
 __pycache__/
 *.pyc
+.claude/worktrees/fervent-jackson-b6399d
