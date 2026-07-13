@@ -33,6 +33,7 @@ namespace DisabledReferenceIntegrityFix
 	inline bool IsFormFromExcludedMod(const RE::TESForm* a_form)
 	{
 		if (!a_form) return false;
+		if (Config::EXCLUDED_MODS.empty()) return false;
 		if (const auto* lastFile = a_form->GetFile(-1)) {
 			if (IsModExcludedByName(lastFile->fileName)) return true;
 		}

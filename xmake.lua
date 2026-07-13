@@ -2,7 +2,7 @@ set_xmakever('3.0.1')
 includes('extern/commonlibsse-ng')
 
 set_project('DisabledReferenceIntegrityFix')
-set_version('1.2.1')
+set_version('1.3.1')
 set_license('GPL-3.0')
 
 set_languages('c++23')
@@ -68,10 +68,7 @@ target('DisabledReferenceIntegrityFix')
 
     add_includedirs(
         'src',
-        '$(projectdir)',
-        '$(projectdir)/extern/ClibUtil',
-        '$(projectdir)/extern/ClibUtil/detail',
-        '$(projectdir)/simpleini'
+        '$(projectdir)'
     )
 
     set_pcxxheader('src/pch.h')

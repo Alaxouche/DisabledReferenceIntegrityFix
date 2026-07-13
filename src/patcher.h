@@ -69,7 +69,6 @@ namespace DisabledReferenceIntegrityFix
 	extern HookStats                                       g_hook_stats;
 	extern std::unordered_set<RE::FormID>                  g_processed_cells;
 	extern std::unordered_map<RE::FormID, WorldspaceStats> g_worldspace_stats;
-	extern bool                                            g_plugin_enabled;
 
 	void AttachPlayerEnableParentOpposite(RE::TESObjectREFR* ref);
 

@@ -11,18 +11,18 @@ namespace DisabledReferenceIntegrityFix
 {
 	struct RuntimeConfig
 	{
-		bool        enableLogging    = true;
-		bool        verboseLogging   = false;
-		bool        fixReferences    = true;
-		bool        fixNavmeshes     = false;
-		bool        earlyFixOnLoad3D = true;
-		bool        patchExterior    = true;
-		bool        patchInterior    = true;
+		bool        enableLogging     = true;
+		bool        verboseLogging    = false;
+		bool        fixReferences     = true;
+		bool        fixNavmeshes      = false;
+		bool        earlyFixOnLoad3D  = true;
+		bool        patchExterior     = true;
+		bool        patchInterior     = true;
 		bool        autoFixOnCellLoad = true;
-		bool        includeDeleted   = false;
-		uint32_t    maxRefsPerBatch  = 0;
-		int         logLevel         = 3;
-		bool        iniFound         = false;
+		bool        includeDeleted    = false;
+		uint32_t    maxRefsPerBatch   = 0;
+		int         logLevel          = 3;
+		bool        iniFound          = false;
 		std::unordered_set<std::string> excludedMods;
 		std::unordered_set<uint32_t>    excludedForms;
 		std::filesystem::path iniPath;

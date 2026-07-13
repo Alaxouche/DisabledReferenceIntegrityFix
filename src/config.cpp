@@ -9,17 +9,17 @@
 
 namespace DisabledReferenceIntegrityFix::Config
 {
-	bool     ENABLE_LOGGING     = true;
-	bool     VERBOSE_LOGGING    = false;
-	bool     FIX_REFERENCES     = true;
-	bool     FIX_NAVMESHES      = false;
-	bool     EARLY_FIX_ON_LOAD3D = true;
-	bool     PATCH_EXTERIOR     = true;
-	bool     PATCH_INTERIOR     = true;
+	bool     ENABLE_LOGGING        = true;
+	bool     VERBOSE_LOGGING       = false;
+	bool     FIX_REFERENCES        = true;
+	bool     FIX_NAVMESHES         = false;
+	bool     EARLY_FIX_ON_LOAD3D   = true;
+	bool     PATCH_EXTERIOR        = true;
+	bool     PATCH_INTERIOR        = true;
 	bool     AUTO_FIX_ON_CELL_LOAD = true;
-	bool     INCLUDE_DELETED    = false;
-	uint32_t MAX_REFS_PER_BATCH = 0;
-	int      LOG_LEVEL          = 3;
+	bool     INCLUDE_DELETED       = false;
+	uint32_t MAX_REFS_PER_BATCH    = 0;
+	int      LOG_LEVEL             = 3;
 	std::unordered_set<std::string> EXCLUDED_MODS;
 	std::unordered_set<uint32_t>    EXCLUDED_FORMS;
 }
@@ -117,7 +117,6 @@ namespace DisabledReferenceIntegrityFix
 		std::string line;
 		line.reserve(INI_LINE_RESERVE);
 
-		// Splits on commas only — dash is NOT a separator because mod filenames can contain hyphens.
 		auto ForEachCommaSeparated = [](std::string_view input, auto&& onToken) {
 			size_t start = 0;
 			for (size_t i = 0; i <= input.size(); ++i) {
@@ -130,7 +129,6 @@ namespace DisabledReferenceIntegrityFix
 			}
 		};
 
-		// Splits on commas and dashes — safe for hex FormIDs which never contain hyphens.
 		auto ForEachFormToken = [](std::string_view input, auto&& onToken) {
 			size_t start = 0;
 			for (size_t i = 0; i <= input.size(); ++i) {
@@ -158,7 +156,7 @@ namespace DisabledReferenceIntegrityFix
 			const std::string_view val = TrimView(lineView.substr(eq + 1));
 
 			try {
-				if      (key == "enable_logging")       { cfg.enableLogging     = ParseBool(val); }
+				if      (key == "enable_logging")        { cfg.enableLogging     = ParseBool(val); }
 				else if (key == "verbose_logging")       { cfg.verboseLogging    = ParseBool(val); }
 				else if (key == "fix_references")        { cfg.fixReferences     = ParseBool(val); }
 				else if (key == "fix_navmeshes")         { cfg.fixNavmeshes      = ParseBool(val); }
@@ -203,18 +201,18 @@ namespace DisabledReferenceIntegrityFix
 	void ApplyConfig(const RuntimeConfig& cfg)
 	{
 		using namespace Config;
-		ENABLE_LOGGING      = cfg.enableLogging;
-		VERBOSE_LOGGING     = cfg.verboseLogging;
-		FIX_REFERENCES      = cfg.fixReferences;
-		FIX_NAVMESHES       = cfg.fixNavmeshes;
-		EARLY_FIX_ON_LOAD3D = cfg.earlyFixOnLoad3D;
-		PATCH_EXTERIOR      = cfg.patchExterior;
-		PATCH_INTERIOR      = cfg.patchInterior;
+		ENABLE_LOGGING        = cfg.enableLogging;
+		VERBOSE_LOGGING       = cfg.verboseLogging;
+		FIX_REFERENCES        = cfg.fixReferences;
+		FIX_NAVMESHES         = cfg.fixNavmeshes;
+		EARLY_FIX_ON_LOAD3D   = cfg.earlyFixOnLoad3D;
+		PATCH_EXTERIOR        = cfg.patchExterior;
+		PATCH_INTERIOR        = cfg.patchInterior;
 		AUTO_FIX_ON_CELL_LOAD = cfg.autoFixOnCellLoad;
-		INCLUDE_DELETED     = cfg.includeDeleted;
-		MAX_REFS_PER_BATCH  = cfg.maxRefsPerBatch;
-		LOG_LEVEL           = cfg.logLevel;
-		EXCLUDED_MODS       = cfg.excludedMods;
-		EXCLUDED_FORMS      = cfg.excludedForms;
+		INCLUDE_DELETED       = cfg.includeDeleted;
+		MAX_REFS_PER_BATCH    = cfg.maxRefsPerBatch;
+		LOG_LEVEL             = cfg.logLevel;
+		EXCLUDED_MODS         = cfg.excludedMods;
+		EXCLUDED_FORMS        = cfg.excludedForms;
 	}
 }

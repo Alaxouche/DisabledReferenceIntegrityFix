@@ -12,7 +12,6 @@ namespace DisabledReferenceIntegrityFix
 	HookStats                                       g_hook_stats{};
 	std::unordered_set<RE::FormID>                  g_processed_cells{};
 	std::unordered_map<RE::FormID, WorldspaceStats> g_worldspace_stats{};
-	bool                                            g_plugin_enabled = true;
 
 	namespace
 	{
@@ -23,6 +22,12 @@ namespace DisabledReferenceIntegrityFix
 			if (!ref) return true;
 			if (IsHardcodedExcludedRef(ref)) return true;
 			if (ref->GetFormType() == RE::FormType::ActorCharacter) return true;
+			// Same protected categories as the early-hook path (IsExcludedFast):
+			// persistent / quest-object / linked refs are often parked below the
+			// world boundary on purpose by quests and other mods.
+			if (ref->IsPersistent()) return true;
+			if (ref->HasQuestObject()) return true;
+			if (ref->extraList.HasType<RE::ExtraLinkedRef>()) return true;
 			if (EXCLUDED_FORMS.contains(ref->GetFormID())) return true;
 			if (IsFormFromExcludedMod(ref)) return true;
 			if (const auto* base = ref->GetBaseObject()) {
@@ -148,38 +153,30 @@ namespace DisabledReferenceIntegrityFix
 		{
 			if (!cell || !FIX_NAVMESHES) return 0;
 
+			auto* navMeshes = cell->GetRuntimeData().navMeshes;
+			if (!navMeshes || navMeshes->navMeshes.empty()) return 0;
+
 			uint32_t fixed = 0;
-
-			try {
-				auto* navMeshes = cell->GetRuntimeData().navMeshes;
-				if (!navMeshes || navMeshes->navMeshes.empty()) return 0;
-
-				auto& arr = navMeshes->navMeshes;
-				for (uint32_t i = 0; i < arr.size(); ++i) {
-					auto* nm = arr[i].get();
-					if (!nm) continue;
-					g_stats.navmeshes_checked++;
-					auto& verts = nm->vertices;
-					for (uint32_t j = 0; j < verts.size(); ++j) {
-						auto& v = verts[j];
-						if (v.location.z < Z_FLOOR) {
-							if (VERBOSE_LOGGING && ENABLE_LOGGING)
-								logger::trace("[navmesh] vtx {} Z:{:.0f}->{:.0f}", j, v.location.z, Z_FLOOR);
-							v.location.z = Z_FLOOR;
-							++fixed;
-						}
+			auto&    arr   = navMeshes->navMeshes;
+			for (uint32_t i = 0; i < arr.size(); ++i) {
+				auto* nm = arr[i].get();
+				if (!nm) continue;
+				g_stats.navmeshes_checked++;
+				auto& verts = nm->vertices;
+				for (uint32_t j = 0; j < verts.size(); ++j) {
+					auto& v = verts[j];
+					if (v.location.z < Z_FLOOR) {
+						if (VERBOSE_LOGGING && ENABLE_LOGGING)
+							logger::trace("[navmesh] vtx {} Z:{:.0f}->{:.0f}", j, v.location.z, Z_FLOOR);
+						v.location.z = Z_FLOOR;
+						++fixed;
 					}
 				}
-
-				if (fixed > 0 && ENABLE_LOGGING)
-					logger::info("[NAVMESH] Cell 0x{:08X}: {} vertices Z-clamped to {:.0f}",
-						cell->GetFormID(), fixed, Z_FLOOR);
-
-			} catch (const std::exception& e) {
-				logger::error("[navmesh] {}", e.what());
-			} catch (...) {
-				logger::error("[navmesh] unknown exception");
 			}
+
+			if (fixed > 0 && ENABLE_LOGGING)
+				logger::info("[NAVMESH] Cell 0x{:08X}: {} vertices Z-clamped to {:.0f}",
+					cell->GetFormID(), fixed, Z_FLOOR);
 
 			g_stats.navmesh_vertices_fixed += fixed;
 			return fixed;
@@ -254,7 +251,7 @@ namespace DisabledReferenceIntegrityFix
 
 	uint32_t FixCellReferences(RE::TESObjectCELL* cell)
 	{
-		if (!cell || !g_plugin_enabled) return 0;
+		if (!cell) return 0;
 
 		const auto cellFormID = cell->GetFormID();
 		if (g_processed_cells.contains(cellFormID)) return 0;
@@ -354,7 +351,7 @@ namespace DisabledReferenceIntegrityFix
 
 	uint32_t FixCellNavmeshesOnly(RE::TESObjectCELL* cell)
 	{
-		if (!cell || !g_plugin_enabled || !FIX_NAVMESHES) return 0;
+		if (!cell || !FIX_NAVMESHES) return 0;
 
 		const bool isInterior = cell->IsInteriorCell();
 		if (isInterior && !PATCH_INTERIOR) return 0;

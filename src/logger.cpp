@@ -42,7 +42,7 @@ void SetupLog(bool enableLogging, int logLevel)
 
 	auto combinedLogger = std::make_shared<spdlog::logger>("global log", sinks.begin(), sinks.end());
 	combinedLogger->set_level(lvl);
-	combinedLogger->flush_on(spdlog::level::info);
+	combinedLogger->flush_on(spdlog::level::warn);
 	spdlog::set_default_logger(combinedLogger);
 	spdlog::set_level(lvl);
 	spdlog::set_pattern("%Y-%m-%d %H:%M:%S.%e [%^%l%$] %v");

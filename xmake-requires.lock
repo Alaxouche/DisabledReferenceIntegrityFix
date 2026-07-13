@@ -35,6 +35,14 @@
             },
             version = "1.12.1"
         },
+        ["rapidcsv v8.92#f56260b5"] = {
+            repo = {
+                branch = "master",
+                commit = "adf3ca9e892fcd8e1bf24a1d748cf62b5d92741c",
+                url = "https://github.com/xmake-io/xmake-repo.git"
+            },
+            version = "v8.92"
+        },
         ["spdlog v1.16.0#09c8c173"] = {
             repo = {
                 branch = "master",
