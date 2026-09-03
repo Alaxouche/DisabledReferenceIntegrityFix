@@ -2,7 +2,7 @@ set_xmakever('3.0.1')
 includes('extern/commonlibsse-ng')
 
 set_project('DisabledReferenceIntegrityFix')
-set_version('1.3.1')
+set_version('1.4.0')
 set_license('GPL-3.0')
 
 set_languages('c++23')
@@ -72,6 +72,11 @@ target('DisabledReferenceIntegrityFix')
     )
 
     set_pcxxheader('src/pch.h')
+    -- Emit a .pdb next to the .dll so crash logs can be symbolicated.
+    -- Added automatically by ClibDT.
+    set_symbols('debug')
+    set_strip('none')
+
 
     if has_config('skyrim_vr') then
         add_defines('ENABLE_SKYRIM_VR')

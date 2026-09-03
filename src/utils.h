@@ -43,6 +43,23 @@ namespace DisabledReferenceIntegrityFix
 		return false;
 	}
 
+	// True when a plugin other than the one that first defined this record has
+	// overridden it.
+	//
+	// A reference nobody overrode still carries the enable state its own author
+	// gave it. An "initially disabled" reference with no enable parent is the
+	// engine's normal way of saying "a quest or script switches this on later"
+	// (vanilla favor-quest items are exactly this shape), so parking one at the Z
+	// floor and pinning it to an enable-state parent strands it for good. Only a
+	// reference that a *later* plugin edited was deliberately hidden by a mod, and
+	// that is the case this plugin exists to normalize.
+	inline bool IsOverriddenByLaterPlugin(const RE::TESForm* a_form)
+	{
+		if (!a_form) return false;
+		const auto* array = a_form->sourceFiles.array;
+		return array && array->size() > 1;
+	}
+
 	inline bool IsHardcodedExcludedRef(const RE::TESObjectREFR* a_ref)
 	{
 		if (!a_ref) return true;

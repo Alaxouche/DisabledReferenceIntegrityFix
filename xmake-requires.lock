@@ -38,7 +38,7 @@
         ["rapidcsv v8.92#f56260b5"] = {
             repo = {
                 branch = "master",
-                commit = "adf3ca9e892fcd8e1bf24a1d748cf62b5d92741c",
+                commit = "b9256335e0b6e70808e23dfe71627d8a4dcc0abf",
                 url = "https://github.com/xmake-io/xmake-repo.git"
             },
             version = "v8.92"

@@ -44,6 +44,7 @@ namespace DisabledReferenceIntegrityFix
 		std::atomic<uint32_t> load3d_gated{0};
 		std::atomic<uint32_t> init_cair_z_ok{0};
 		std::atomic<uint32_t> init_excluded{0};
+		std::atomic<uint32_t> init_skipped_author_disabled{0};
 	};
 
 	struct WorldspaceStats

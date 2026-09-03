@@ -17,6 +17,26 @@ namespace DisabledReferenceIntegrityFix
 	{
 		std::atomic<uint64_t> g_last_hook_log_ms{ 0 };
 
+		std::string FormatHookInstrumentation(const char* a_reason)
+		{
+			return std::format(
+				"[hooks:{}] initSeen:{} initFixedPreLive:{} initSkip(3d:{} attached:{} refsLoaded:{}) load3dGated:{} | diag(cairOk:{} excl:{} authorDis:{}) | fallbackCells:{} fallbackRefFixes:{} navmeshEventCells:{} navmeshEventVerts:{}",
+				a_reason ? a_reason : "snapshot",
+				g_hook_stats.init_seen.load(std::memory_order_relaxed),
+				g_hook_stats.init_fixed_pre_live.load(std::memory_order_relaxed),
+				g_hook_stats.init_skipped_has3d.load(std::memory_order_relaxed),
+				g_hook_stats.init_skipped_cell_attached.load(std::memory_order_relaxed),
+				g_hook_stats.init_skipped_refs_fully_loaded.load(std::memory_order_relaxed),
+				g_hook_stats.load3d_gated.load(std::memory_order_relaxed),
+				g_hook_stats.init_cair_z_ok.load(std::memory_order_relaxed),
+				g_hook_stats.init_excluded.load(std::memory_order_relaxed),
+				g_hook_stats.init_skipped_author_disabled.load(std::memory_order_relaxed),
+				g_stats.fallback_event_cells_fixed,
+				g_stats.fallback_event_refs_fixed,
+				g_stats.fallback_event_navmesh_cells_fixed,
+				g_stats.fallback_event_navmesh_vertices_fixed);
+		}
+
 		bool IsExcludedByConfig(const RE::TESObjectREFR* ref)
 		{
 			if (!ref) return true;
@@ -118,7 +138,7 @@ namespace DisabledReferenceIntegrityFix
 				!ref->HasQuestObject();
 
 			if (canApplyInitDisabledRule) {
-				if (base && !IsMarkerBase(base)) {
+				if (base && !IsMarkerBase(base) && IsOverriddenByLaterPlugin(ref)) {
 					if (std::fabs(z - Z_FLOOR) > Z_EPSILON) {
 						RE::NiPoint3 newPos = currentPos;
 						newPos.z = Z_FLOOR;
@@ -288,8 +308,26 @@ namespace DisabledReferenceIntegrityFix
 		uint32_t fixedCount = 0;
 		bool batchLimitHit = false;
 
+		// Snapshot the reference list before touching anything.
+		//
+		// TESObjectCELL::ForEachReference holds the cell's BSSpinLock for the whole
+		// walk. The corrections below call straight back into the engine - Disable(),
+		// Update3DPosition(), extraList.Add() - and write log lines to disk. Running
+		// all of that inside the callback keeps a spin lock held across engine calls
+		// and file I/O, so every other thread that needs this cell's reference list
+		// burns CPU waiting, and the engine code we call can itself reach the list we
+		// are iterating. Copying the pointers out first costs one cheap pass and lets
+		// the actual work run with no engine lock held.
+		std::vector<RE::NiPointer<RE::TESObjectREFR>> refs;
+		refs.reserve(128);
 		cell->ForEachReference([&](RE::TESObjectREFR* ref) -> RE::BSContainer::ForEachResult {
-			if (!ref) return RE::BSContainer::ForEachResult::kContinue;
+			if (ref) refs.emplace_back(ref);
+			return RE::BSContainer::ForEachResult::kContinue;
+		});
+
+		for (const auto& refPtr : refs) {
+			auto* ref = refPtr.get();
+			if (!ref) continue;
 
 			g_stats.total_refs_checked++;
 			bool processed = false;
@@ -324,11 +362,9 @@ namespace DisabledReferenceIntegrityFix
 				if (ENABLE_LOGGING)
 					logger::warn("[cell] Batch limit ({}) reached, cell will be retried next scan", MAX_REFS_PER_BATCH);
 				batchLimitHit = true;
-				return RE::BSContainer::ForEachResult::kStop;
+				break;
 			}
-
-			return RE::BSContainer::ForEachResult::kContinue;
-		});
+		}
 
 		const uint32_t navmeshFixes = FixNavmeshVertices(cell);
 		wsStats.navmesh_vertices_fixed += navmeshFixes;
@@ -421,51 +457,30 @@ namespace DisabledReferenceIntegrityFix
 
 			if (total == 0)
 				logger::info("[Disabled Reference Integrity Fix] Worldspace is clean, no objects below -30K.");
-
-			logger::info("[hooks] initSeen:{} initFixedPreLive:{} initSkip(3d:{} attached:{} refsLoaded:{}) load3dGated:{} | diag(cairOk:{} excl:{}) | fallbackCells:{} fallbackRefFixes:{} navmeshEventCells:{} navmeshEventVerts:{}",
-				g_hook_stats.init_seen.load(std::memory_order_relaxed),
-				g_hook_stats.init_fixed_pre_live.load(std::memory_order_relaxed),
-				g_hook_stats.init_skipped_has3d.load(std::memory_order_relaxed),
-				g_hook_stats.init_skipped_cell_attached.load(std::memory_order_relaxed),
-				g_hook_stats.init_skipped_refs_fully_loaded.load(std::memory_order_relaxed),
-				g_hook_stats.load3d_gated.load(std::memory_order_relaxed),
-				g_hook_stats.init_cair_z_ok.load(std::memory_order_relaxed),
-				g_hook_stats.init_excluded.load(std::memory_order_relaxed),
-				g_stats.fallback_event_cells_fixed,
-				g_stats.fallback_event_refs_fixed,
-				g_stats.fallback_event_navmesh_cells_fixed,
-				g_stats.fallback_event_navmesh_vertices_fixed);
 		}
 	}
 
 	void LogHookInstrumentation(const char* a_reason)
 	{
 		if (!ENABLE_LOGGING) return;
-		logger::info("[hooks:{}] initSeen:{} initFixedPreLive:{} initSkip(3d:{} attached:{} refsLoaded:{}) load3dGated:{} | diag(cairOk:{} excl:{}) | fallbackCells:{} fallbackRefFixes:{} navmeshEventCells:{} navmeshEventVerts:{}",
-			a_reason ? a_reason : "snapshot",
-			g_hook_stats.init_seen.load(std::memory_order_relaxed),
-			g_hook_stats.init_fixed_pre_live.load(std::memory_order_relaxed),
-			g_hook_stats.init_skipped_has3d.load(std::memory_order_relaxed),
-			g_hook_stats.init_skipped_cell_attached.load(std::memory_order_relaxed),
-			g_hook_stats.init_skipped_refs_fully_loaded.load(std::memory_order_relaxed),
-			g_hook_stats.load3d_gated.load(std::memory_order_relaxed),
-			g_hook_stats.init_cair_z_ok.load(std::memory_order_relaxed),
-			g_hook_stats.init_excluded.load(std::memory_order_relaxed),
-			g_stats.fallback_event_cells_fixed,
-			g_stats.fallback_event_refs_fixed,
-			g_stats.fallback_event_navmesh_cells_fixed,
-			g_stats.fallback_event_navmesh_vertices_fixed);
+		logger::info("{}", FormatHookInstrumentation(a_reason));
 	}
 
 	void MaybeLogHookInstrumentation(const char* a_reason, uint64_t a_intervalMs)
 	{
-		if (!ENABLE_LOGGING) return;
+		// Debug level on purpose. This heartbeat fires every few seconds for the whole
+		// session, so at the default log level it was always the last line in the file
+		// whenever the game stopped for any reason - which repeatedly got the plugin
+		// blamed for unrelated crashes. The milestone snapshots (data-loaded,
+		// post-load-game, new-game) carry the same counters and stay at info.
+		if (!ENABLE_LOGGING || LOG_LEVEL < 4) return;
+
 		const uint64_t now  = static_cast<uint64_t>(::GetTickCount64());
 		uint64_t last = g_last_hook_log_ms.load(std::memory_order_relaxed);
 		if (now - last < a_intervalMs) return;
 
 		if (g_last_hook_log_ms.compare_exchange_strong(last, now, std::memory_order_relaxed)) {
-			LogHookInstrumentation(a_reason);
+			logger::debug("{}", FormatHookInstrumentation(a_reason));
 		}
 	}
 }

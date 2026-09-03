@@ -71,6 +71,10 @@ namespace DisabledReferenceIntegrityFix
 
 			if (canApplyInitDisabledRule) {
 				if (!base || IsMarkerBase(base)) return false;
+				if (!IsOverriddenByLaterPlugin(a_ref)) {
+					g_hook_stats.init_skipped_author_disabled.fetch_add(1, std::memory_order_relaxed);
+					return false;
+				}
 				if (std::fabs(pos.z - Z_FLOOR) > Z_EPSILON) {
 					auto fixedPos = pos;
 					fixedPos.z = Z_FLOOR;
